@@ -20,7 +20,8 @@
   "build": {
     "appId": "tech.benmore.motion",
     "mac": {
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "icon": "src/renderer/assets/logo.png"
     }
   }
 }

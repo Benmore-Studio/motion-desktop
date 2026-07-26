@@ -238,6 +238,16 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
 
-app.whenReady().then(() => { registerIpc(); createWindow(); });
+app.whenReady().then(() => {
+  // Benmore logo as the macOS dock icon (packaged builds use build.icon instead).
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      const { nativeImage } = require('electron');
+      const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'renderer', 'assets', 'logo.png'));
+      if (!icon.isEmpty()) app.dock.setIcon(icon);
+    } catch { /* cosmetic only */ }
+  }
+  registerIpc(); createWindow();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

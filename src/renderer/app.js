@@ -161,7 +161,7 @@ $('#input').addEventListener('keydown', (e) => {
 $('#input').addEventListener('input', function () { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 140) + 'px'; });
 $('#new-chat').addEventListener('click', async () => {
   await motion.resetChat();
-  threadEl().innerHTML = '<div class="hello"><div class="hello-logo"></div><h2>New conversation.</h2><p>Context cleared — your Rolodex data is unchanged.</p></div>';
+  threadEl().innerHTML = '<div class="hello"><img class="hello-logo" src="assets/logo.png" alt=""><h2>New conversation.</h2><p>Context cleared — your Rolodex data is unchanged.</p></div>';
   botBubble = null;
 });
 

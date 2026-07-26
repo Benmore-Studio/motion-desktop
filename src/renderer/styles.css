@@ -19,10 +19,11 @@ body {
 /* ---------- brand ---------- */
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
 .brand.small { font-size: 13px; }
-.logo { display: inline-block; width: 18px; height: 18px; border-radius: 5px;
-  background: linear-gradient(135deg, #5e6ad2, #2540b4); box-shadow: 0 0 14px rgba(94,106,210,.5); }
-.hello-logo { width: 40px; height: 40px; border-radius: 12px; margin: 0 auto 14px;
-  background: linear-gradient(135deg, #5e6ad2, #2540b4); box-shadow: 0 0 28px rgba(94,106,210,.45); }
+.logo { display: inline-block; width: 18px; height: 18px; border-radius: 5px; object-fit: cover;
+  box-shadow: 0 0 14px rgba(94,106,210,.5); }
+.gate-card .logo { width: 22px; height: 22px; border-radius: 6px; }
+.hello-logo { display: block; width: 44px; height: 44px; border-radius: 12px; margin: 0 auto 14px; object-fit: cover;
+  box-shadow: 0 0 28px rgba(94,106,210,.45); }
 
 /* ---------- gate (onboarding) ---------- */
 .gate { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: 20; }
