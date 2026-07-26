@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-  <title>Motion</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
+  <title>Motion by Benmore Technologies</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,10 +15,12 @@
   <div id="gate" class="gate" hidden>
     <div class="gate-card">
       <div class="brand"><img class="logo" src="assets/logo.png" alt=""> Motion</div>
+      <div class="gate-byline">by Benmore Technologies</div>
       <h1 id="gate-title">Your AI Rolodex.</h1>
       <p id="gate-sub">Sign in to connect your Rolodex, then add a key to power the agent.</p>
       <div id="gate-steps"></div>
     </div>
+    <div class="gate-foot">Motion · by Benmore Technologies</div>
   </div>
 
   <!-- Main 2-pane layout -->
@@ -25,7 +28,7 @@
     <!-- Pane 1: chat + actions -->
     <section class="chat-pane">
       <header class="pane-head">
-        <div class="brand small"><img class="logo" src="assets/logo.png" alt=""> Motion</div>
+        <div class="brand small"><img class="logo" src="assets/logo.png" alt=""> Motion <span class="by">by Benmore Technologies</span></div>
         <div class="head-right">
           <span id="engine-badge" class="badge" title="Agent engine"></span>
           <button id="new-chat" class="ghost" title="New conversation">↺</button>
