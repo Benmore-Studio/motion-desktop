@@ -322,8 +322,94 @@ let contacts = [];
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
   currentTab = t.dataset.tab;
-  if (currentTab === 'contacts') loadContacts(); else loadQueue();
+  if (currentTab === 'contacts') loadContacts();
+  else if (currentTab === 'queue') loadQueue();
+  else loadMeetings();
 }));
+
+// ---- Meetings tab: Calendly-style booking-page setup + upcoming bookings ----
+async function loadMeetings() {
+  const el = $('#db-body');
+  delete el.dataset.detail;
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const [pg, bk] = await Promise.all([
+    motion.get('/api/booking_pages?per_page=5'),
+    motion.get('/api/bookings?per_page=100&orderBy=start_at:asc'),
+  ]);
+  const pages = pg.status === 200 ? (Array.isArray(pg.body) ? pg.body : (pg.body.rows || [])) : [];
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const bookings = (bk.status === 200 ? (Array.isArray(bk.body) ? bk.body : (bk.body.rows || [])) : [])
+    .filter((b) => b.status === 'confirmed' && String(b.start_at).replace('T', ' ') >= now);
+  renderMeetings(pages[0] || null, bookings);
+}
+
+function renderMeetings(page, bookings) {
+  const el = $('#db-body');
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const field = (label, inner) => `<div style="margin-bottom:10px"><label style="display:block;font-size:11.5px;color:var(--tx3);margin-bottom:4px">${label}</label>${inner}</div>`;
+  const dayChecks = (sel) => [['1','Mon'],['2','Tue'],['3','Wed'],['4','Thu'],['5','Fri'],['6','Sat'],['7','Sun']]
+    .map(([v, l]) => `<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;font-size:12px;color:var(--tx2)"><input type="checkbox" class="bp-day" value="${v}" ${sel.includes(v) ? 'checked' : ''} style="width:auto">${l}</label>`).join('');
+  const hourOpts = (v) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === v ? 'selected' : ''}>${h === 0 ? '12 AM' : h < 12 ? h + ' AM' : h === 12 ? '12 PM' : (h - 12) + ' PM'}</option>`).join('');
+
+  const p = page || { slug: '', title: 'Intro call', durations: '15,30', days: '1,2,3,4,5', start_hour: 9, end_hour: 17, timezone: tz, active: true };
+  const link = cfg.base + '/book?u=' + (p.slug || '…');
+
+  el.innerHTML = `
+    <div class="section-h">Your booking page</div>
+    <div class="entry" style="padding:14px">
+      ${page ? `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <code style="flex:1;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:7px 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(link)}</code>
+          <button id="bp-copy" class="ghost" style="padding:6px 10px">Copy</button>
+          <button id="bp-toggle" class="ghost" style="padding:6px 10px">${p.active ? 'Turn off' : 'Turn on'}</button>
+        </div>` : `
+        <div style="font-size:12.5px;color:var(--tx2);margin-bottom:12px">Share one link; booked meetings land on the contact's timeline automatically and stop any running sequences.</div>
+        ${field('Your link', `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx3)">/book?u=</span><input id="bp-slug" placeholder="your-name" style="flex:1"></div>`)}`}
+      ${field('Title', `<input id="bp-title" value="${esc(p.title)}">`)}
+      ${field('Durations (minutes, comma-separated)', `<input id="bp-durs" value="${esc(p.durations)}">`)}
+      ${field('Days', `<div>${dayChecks(String(p.days).split(','))}</div>`)}
+      <div style="display:flex;gap:10px">
+        <div style="flex:1">${field('From', `<select id="bp-start" style="width:100%">${hourOpts(p.start_hour)}</select>`)}</div>
+        <div style="flex:1">${field('Until', `<select id="bp-end" style="width:100%">${hourOpts(p.end_hour)}</select>`)}</div>
+      </div>
+      ${field('Timezone', `<input id="bp-tz" value="${esc(p.timezone)}">`)}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+        <span id="bp-err" style="flex:1;color:var(--red);font-size:12px;align-self:center"></span>
+        <button id="bp-save" class="primary" style="padding:7px 16px">${page ? 'Save' : 'Create my page'}</button>
+      </div>
+    </div>
+    <div class="section-h">Upcoming meetings · ${bookings.length}</div>
+    ${bookings.length ? bookings.map((b) => `
+      <div class="fu-row">
+        <span class="ch">📅</span>
+        <span>${esc(b.guest_name)} <span style="color:var(--tx3)">· ${esc(b.guest_email)}</span></span>
+        <span class="due">${new Date(String(b.start_at).replace(' ', 'T') + (String(b.start_at).endsWith('Z') ? '' : 'Z')).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+      </div>`).join('') : '<div class="empty">Nothing booked yet — share your link.</div>'}`;
+
+  $('#bp-copy')?.addEventListener('click', function () { navigator.clipboard.writeText(link); this.textContent = 'Copied'; setTimeout(() => { this.textContent = 'Copy'; }, 1500); });
+  $('#bp-toggle')?.addEventListener('click', async () => { await motion.patch('/api/booking_pages/' + page.id, { active: !p.active }); loadMeetings(); });
+  $('#bp-save').addEventListener('click', async () => {
+    const days = [...el.querySelectorAll('.bp-day:checked')].map((c) => c.value).join(',');
+    const body = {
+      title: $('#bp-title').value.trim() || 'Intro call',
+      durations: $('#bp-durs').value.replace(/[^0-9,]/g, '') || '30',
+      days: days || '1,2,3,4,5',
+      start_hour: Number($('#bp-start').value),
+      end_hour: Number($('#bp-end').value),
+      timezone: $('#bp-tz').value.trim() || tz,
+    };
+    if (body.end_hour <= body.start_hour) { $('#bp-err').textContent = '"Until" must be after "From".'; return; }
+    let res;
+    if (page) res = await motion.patch('/api/booking_pages/' + page.id, body);
+    else {
+      const slug = ($('#bp-slug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')) || '';
+      if (!slug) { $('#bp-err').textContent = 'Pick a link name.'; return; }
+      res = await motion.post('/api/booking_pages', { ...body, slug, active: true });
+    }
+    if (res.status >= 300) { $('#bp-err').textContent = (res.body && res.body.error) || 'Could not save — is that link name taken?'; return; }
+    loadMeetings();
+  });
+}
 
 async function loadContacts(soft) {
   const { status, body } = await motion.get('/api/targets?per_page=500&orderBy=updated_at:desc');
