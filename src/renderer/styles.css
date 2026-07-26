@@ -1,5 +1,6 @@
 /* Motion desktop — dark, quiet, Linear-adjacent. Accent #5e6ad2. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 :root {
   --bg: #0c0d10; --panel: #0e0f12; --panel2: #111216;
   --border: #26272c; --border-soft: #1c1d22;
