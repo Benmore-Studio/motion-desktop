@@ -1,8 +1,8 @@
 {
   "name": "motion-desktop",
-  "productName": "Motion",
+  "productName": "Blitz",
   "version": "0.1.0",
-  "description": "Motion — your AI Rolodex. Desktop cockpit: agent chat + context database.",
+  "description": "Blitz — your AI Rolodex. Desktop cockpit: agent chat + context database.",
   "main": "src/main/main.js",
   "license": "MIT",
   "author": "Benmore",

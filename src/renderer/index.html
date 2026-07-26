@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
-  <title>Motion by Benmore Technologies</title>
+  <title>Blitz by Benmore Technologies</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -14,13 +14,13 @@
   <!-- Onboarding / lock screen -->
   <div id="gate" class="gate" hidden>
     <div class="gate-card">
-      <div class="brand"><img class="logo" src="assets/logo.png" alt=""> Motion</div>
+      <div class="brand"><img class="logo" src="assets/logo.png" alt=""> Blitz</div>
       <div class="gate-byline">by Benmore Technologies</div>
       <h1 id="gate-title">Your AI Rolodex.</h1>
       <p id="gate-sub">Sign in to connect your Rolodex, then add a key to power the agent.</p>
       <div id="gate-steps"></div>
     </div>
-    <div class="gate-foot">Motion · by Benmore Technologies</div>
+    <div class="gate-foot">Blitz · by Benmore Technologies</div>
   </div>
 
   <!-- Main 2-pane layout -->
@@ -28,9 +28,9 @@
     <!-- Pane 1: chat + actions -->
     <section class="chat-pane">
       <header class="pane-head">
-        <div class="brand small"><img class="logo" src="assets/logo.png" alt=""> Motion <span class="by">by Benmore Technologies</span></div>
+        <div class="brand small"><img class="logo" src="assets/logo.png" alt=""> Blitz <span class="by">by Benmore Technologies</span></div>
         <div class="head-right">
-          <button id="balance-chip" class="badge" title="Motion credits — click for billing" hidden>⚡ —</button>
+          <button id="balance-chip" class="badge" title="Blitz credits — click for billing" hidden>⚡ —</button>
           <span id="engine-badge" class="badge" title="Agent engine"></span>
           <button id="new-chat" class="ghost" title="New conversation">↺</button>
           <button id="settings-btn" class="ghost" title="Settings">⚙</button>
@@ -44,7 +44,7 @@
         </div>
       </div>
       <footer class="composer">
-        <textarea id="input" rows="1" placeholder="Message Motion…"></textarea>
+        <textarea id="input" rows="1" placeholder="Message Blitz…"></textarea>
         <button id="send" class="primary">↑</button>
       </footer>
       <div id="statusline" class="statusline"></div>
@@ -71,7 +71,7 @@
       <div class="field"><label>Signed in as</label><div id="set-email" class="static"></div></div>
       <div class="field"><label>Agent engine</label>
         <select id="set-engine">
-          <option value="platform">Motion credits (no key needed)</option>
+          <option value="platform">Blitz credits (no key needed)</option>
           <option value="byok">Anthropic API key (BYOK)</option>
           <option value="claude-code">Claude Code (my subscription)</option>
         </select>
@@ -95,7 +95,7 @@
   <!-- Billing modal — balance, top-up packs, usage history from the ledger -->
   <div id="billing-modal" class="modal" hidden>
     <div class="modal-card">
-      <h3>Motion credits</h3>
+      <h3>Blitz credits</h3>
       <div class="field"><label>Balance</label><div id="bill-balance" class="static" style="font-size:22px;font-weight:600">—</div></div>
       <div class="field"><label>Top up</label>
         <div style="display:flex;gap:8px">

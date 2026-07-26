@@ -1,16 +1,16 @@
-/* Motion by Benmore Technologies — benmore.ai design language.
-   Navy base (#0a0f1f/#071022), signature gradient (#0a0f1f→#16266b→#2f59e0→#5e87f7),
-   accent blues #3a6cf0/#5c8bff, faint white grid, Poppins headings + Source Sans 3 body. */
+/* Blitz by Benmore Technologies — benmore.ai design language.
+   Navy base (#1f0a0c/#220710), signature gradient (#1f0a0c→#6b1626→#e02f3f→#f75e6e),
+   accent blues #f03a4a/#ff5c6a, faint white grid, Poppins headings + Source Sans 3 body. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
 :root {
-  --bg: #0a0f1f; --bg-deep: #071022;
+  --bg: #1f0a0c; --bg-deep: #220710;
   --panel: #0d1428; --panel2: #111a33;
   --border: rgba(255,255,255,0.10); --border-soft: rgba(255,255,255,0.06);
-  --tx: #ffffff; --tx2: #c3cee4; --tx3: #7c89a6;
-  --accent: #3a6cf0; --accent-hi: #5c8bff;
-  --grad: linear-gradient(180deg, #0a0f1f 0%, #16266b 32%, #2f59e0 66%, #5e87f7 100%);
-  --grad-btn: linear-gradient(135deg, #2f59e0 0%, #5e87f7 100%);
+  --tx: #ffffff; --tx2: #e4c3c9; --tx3: #a67c85;
+  --accent: #f03a4a; --accent-hi: #ff5c6a;
+  --grad: linear-gradient(180deg, #1f0a0c 0%, #6b1626 32%, #e02f3f 66%, #f75e6e 100%);
+  --grad-btn: linear-gradient(135deg, #e02f3f 0%, #f75e6e 100%);
   --green: #34d399; --amber: #fbbf24; --red: #ef4444;
   --font-head: 'Poppins', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
@@ -56,7 +56,7 @@ h1, h2, h3, .brand { font-family: var(--font-head); }
 .gate-byline { font-size: 11.5px; color: var(--tx3); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 30px; }
 .gate-card h1 {
   font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 10px; line-height: 1.15;
-  background: linear-gradient(180deg, #ffffff 20%, #c3cee4 55%, #5e87f7 115%);
+  background: linear-gradient(180deg, #ffffff 20%, #e4c3c9 55%, #f75e6e 115%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .gate-card p { color: var(--tx2); font-size: 14.5px; margin-bottom: 30px; }

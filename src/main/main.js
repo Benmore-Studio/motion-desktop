@@ -1,6 +1,6 @@
-// Motion Desktop — main process.
-// Owns: window, config (userData/config.json), Motion OAuth (PKCE), the agent
-// engine (Claude Agent SDK ↔ Motion MCP), and REST proxying for the context pane.
+// Blitz Desktop — main process.
+// Owns: window, config (userData/config.json), Blitz OAuth (PKCE), the agent
+// engine (Claude Agent SDK ↔ Blitz MCP), and REST proxying for the context pane.
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 
 const SYSTEM_PROMPT =
-  'You are Motion, the user\'s AI Rolodex assistant, embedded in the Motion desktop app by Benmore Technologies. ' +
+  'You are Blitz, the user\'s AI Rolodex assistant, embedded in the Blitz desktop app by Benmore Technologies. ' +
   'Use the motion MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
   'manage the follow-up queue (get_agenda, get_queue, queue_followup, start_sequence, due_sends, register_reply), ' +
   'and reach out (send_email, send_imessage — default to draft mode unless the user explicitly says send). ' +
@@ -18,9 +18,9 @@ const SYSTEM_PROMPT =
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
 const DEFAULT_BASE = process.env.MOTION_URL || 'https://motion-v9t7fg.benmore.ai';
-// Platform AI ("Motion credits"): the metering proxy in front of Anthropic.
+// Platform AI ("Blitz credits"): the metering proxy in front of Anthropic.
 // Set via MOTION_PROXY_URL or `proxy` in userData/config.json; when present the
-// "Motion credits" engine lights up and becomes the onboarding default.
+// "Blitz credits" engine lights up and becomes the onboarding default.
 const DEFAULT_PROXY = process.env.MOTION_PROXY_URL || '';
 const proxyUrl = (cfg) => (cfg.proxy || DEFAULT_PROXY).replace(/\/$/, '');
 
@@ -55,7 +55,7 @@ async function oauthLogin() {
   const cfg = loadCfg();
   const base = baseUrl(cfg);
   const { status, body: meta } = await jfetch(base + '/.well-known/oauth-authorization-server');
-  if (status !== 200) throw new Error('Cannot reach Motion OAuth server at ' + base);
+  if (status !== 200) throw new Error('Cannot reach Blitz OAuth server at ' + base);
 
   // Local callback server on a random port.
   const srv = http.createServer();
@@ -67,7 +67,7 @@ async function oauthLogin() {
   const { body: reg } = await jfetch(meta.registration_endpoint || base + '/oauth/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_name: 'Motion Desktop', redirect_uris: [redirect],
+      client_name: 'Blitz Desktop', redirect_uris: [redirect],
       grant_types: ['authorization_code'], response_types: ['code'],
       token_endpoint_auth_method: 'none',
     }),
@@ -89,7 +89,7 @@ async function oauthLogin() {
       const u = new URL(req.url, `http://127.0.0.1:${port}`);
       if (u.pathname !== '/callback') { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end('<html><head><meta charset="utf-8"></head><body style="font-family:system-ui;text-align:center;padding-top:20vh;background:#071022;color:#e4e4e7"><h2>Motion connected ✓</h2><p style="color:#7c89a6">You can close this tab and return to the app.</p></body></html>');
+      res.end('<html><head><meta charset="utf-8"></head><body style="font-family:system-ui;text-align:center;padding-top:20vh;background:#220710;color:#e4e4e7"><h2>Blitz connected ✓</h2><p style="color:#a67c85">You can close this tab and return to the app.</p></body></html>');
       clearTimeout(timer); srv.close();
       if (u.searchParams.get('state') !== state) return reject(new Error('State mismatch'));
       if (u.searchParams.get('error')) return reject(new Error(u.searchParams.get('error')));
@@ -160,7 +160,7 @@ async function agentSend(prompt) {
   const engine = cfg.engine || 'byok';
   if (engine === 'claude-code') return agentSendClaudeCode(cfg, prompt);
   if (engine === 'platform') {
-    if (!proxyUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Motion credits are almost live — switch engines in Settings for now.' });
+    if (!proxyUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Blitz credits are almost live — switch engines in Settings for now.' });
     return agentSendSdk(cfg, prompt, true);
   }
   if (!cfg.anthropicKey) return sendToWin({ kind: 'done', ok: false, error: 'No API key set — add one in Settings.' });
@@ -169,8 +169,8 @@ async function agentSend(prompt) {
 
 // Modes B + C — the Claude Agent SDK, keyed two ways:
 //   BYOK: the user's own Anthropic key, straight to api.anthropic.com.
-//   Platform ("Motion credits"): ANTHROPIC_BASE_URL → the metering proxy,
-//   ANTHROPIC_AUTH_TOKEN → the user's Motion session token. The proxy meters
+//   Platform ("Blitz credits"): ANTHROPIC_BASE_URL → the metering proxy,
+//   ANTHROPIC_AUTH_TOKEN → the user's Blitz session token. The proxy meters
 //   usage and deducts wallet credits (cost × 1.5); no user key involved.
 async function agentSendSdk(cfg, prompt, platform) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -326,7 +326,7 @@ function registerIpc() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 980, minHeight: 620,
-    title: 'Motion',
+    title: 'Blitz',
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0c0d10',
     webPreferences: {

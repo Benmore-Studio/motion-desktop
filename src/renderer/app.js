@@ -1,4 +1,4 @@
-// Motion desktop renderer — gate (login → key), chat pane, context DB pane.
+// Blitz desktop renderer — gate (login → key), chat pane, context DB pane.
 /* global motion */
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -54,7 +54,7 @@ function renderGate() {
     box.innerHTML = wdots() + `
       <div class="step">
         <span class="n">1</span>
-        <div class="t"><b>Sign in to Motion</b><span>Google sign-in — opens in your browser</span></div>
+        <div class="t"><b>Sign in to Blitz</b><span>Google sign-in — opens in your browser</span></div>
         <button id="g-login" class="primary">Sign in</button>
       </div>
       <div class="gate-err" id="g-err"></div>`;
@@ -68,12 +68,12 @@ function renderGate() {
 
   if (wstep === 2) {
     title.textContent = 'Power your agent.';
-    sub.textContent = 'Pick how Motion thinks. You can change this anytime in Settings.';
+    sub.textContent = 'Pick how Blitz thinks. You can change this anytime in Settings.';
     const cc = engines.claudeCode;
     const plat = cfg.platformReady;
     box.innerHTML = wdots() + `
       <div class="engine-card ${plat ? '' : 'disabled'}" ${plat ? 'data-engine="platform"' : ''}>
-        <div class="ec-head"><b>Motion credits</b><span class="ec-tag ${plat ? 'ok' : ''}">${plat ? 'Recommended · $5 free to start' : 'Almost live'}</span></div>
+        <div class="ec-head"><b>Blitz credits</b><span class="ec-tag ${plat ? 'ok' : ''}">${plat ? 'Recommended · $5 free to start' : 'Almost live'}</span></div>
         <span>No key, no setup — works instantly. Powered by Claude Opus 5 · $5 free to start.</span>
       </div>
       <div class="engine-card ${cc ? '' : 'disabled'}" data-engine="claude-code">
@@ -163,12 +163,12 @@ function renderGate() {
       <div class="t"><b>${label}</b><span>${note}</span></div></div>`;
   box.innerHTML = wdots() +
     sum(true, 'Rolodex', esc(cfg.email || 'connected')) +
-    sum(true, 'Agent', cfg.engine === 'platform' ? 'Motion credits · $5 free to start'
+    sum(true, 'Agent', cfg.engine === 'platform' ? 'Blitz credits · $5 free to start'
       : cfg.engine === 'claude-code' ? 'Claude Code (your subscription)'
       : 'API key · ' + esc((cfg.model || 'claude-opus-5').replace('claude-', ''))) +
     sum(!!(bridges.channels > 0), 'Email & LinkedIn', bridges.channels > 0 ? bridges.channels + ' channel(s) connected' : 'add anytime in Settings') +
     sum(!!bridges.imessage, 'iMessage', bridges.imessage ? 'ready — texts from your number' : 'enable anytime') + `
-    <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-enter" class="primary wide">Enter Motion →</button></div>`;
+    <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-enter" class="primary wide">Enter Blitz →</button></div>`;
   $('#g-back').addEventListener('click', () => { wstep = 3; renderGate(); });
   $('#g-enter').addEventListener('click', async () => { await motion.setOnboarded(); cfg = await motion.cfg(); enterApp(); });
 }
@@ -197,7 +197,7 @@ function stopBridgePoll() { if (bridgePoll) { clearInterval(bridgePoll); bridgeP
 
 // ================= app =================
 function engineLabel() {
-  if (cfg.engine === 'platform') return 'Motion credits';
+  if (cfg.engine === 'platform') return 'Blitz credits';
   return cfg.engine === 'claude-code'
     ? 'Claude Code'
     : (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · key';
@@ -577,7 +577,7 @@ $('#settings-btn').addEventListener('click', async () => {
   engSel.value = cfg.engine || 'byok';
   engSel.querySelector('[value="platform"]').disabled = !cfg.platformReady;
   engSel.querySelector('[value="platform"]').textContent = cfg.platformReady
-    ? 'Motion credits (no key needed)' : 'Motion credits — almost live';
+    ? 'Blitz credits (no key needed)' : 'Blitz credits — almost live';
   engSel.querySelector('[value="claude-code"]').disabled = !engines.claudeCode;
   engSel.querySelector('[value="claude-code"]').textContent = engines.claudeCode
     ? `Claude Code (my subscription) — ${engines.claudeCode}` : 'Claude Code — not installed';
