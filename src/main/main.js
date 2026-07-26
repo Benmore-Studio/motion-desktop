@@ -6,7 +6,16 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
+
+const SYSTEM_PROMPT =
+  'You are Motion, the user\'s AI Rolodex assistant, embedded in the Motion desktop app by Benmore Technologies. ' +
+  'Use the motion MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
+  'manage the follow-up queue (get_agenda, get_queue, queue_followup, start_sequence, due_sends, register_reply), ' +
+  'and reach out (send_email, send_imessage — default to draft mode unless the user explicitly says send). ' +
+  'This desktop app runs the send_imessage command automatically on the user\'s Mac when mode=send. ' +
+  'Be concise. After acting, summarize what you did in one or two sentences.';
+const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
 const DEFAULT_BASE = process.env.MOTION_URL || 'https://motion-v9t7fg.benmore.ai';
 
@@ -109,18 +118,49 @@ function detectClaudeCode() {
   });
 }
 
-// ---------- agent engine (BYOK via Agent SDK) ----------
+// ---------- iMessage (native) ----------
+// Probe Messages via AppleScript — triggers macOS's one-time Automation prompt.
+function imessageCheck() {
+  return new Promise((resolve) => {
+    execFile('osascript', ['-e', 'tell application "Messages" to get name'], { timeout: 20000 },
+      (err, _out, stderr) => resolve(err ? { ok: false, error: String(stderr || err.message).trim() } : { ok: true }));
+  });
+}
+// When a tool result carries a ready-to-run osascript block (send_imessage mode=send),
+// the desktop runs it right here — no copy-paste. Cloud drafts it, the Mac sends it.
+function maybeExecImessage(text, send) {
+  const m = String(text || '').match(/```bash\n(osascript <<'APPLESCRIPT'[\s\S]*?APPLESCRIPT)\n```/);
+  if (!m) return false;
+  execFile('/bin/bash', ['-c', m[1]], { timeout: 30000 }, (err, _out, stderr) => {
+    send(err
+      ? { kind: 'imessage_sent', ok: false, error: String(stderr || err.message).trim() }
+      : { kind: 'imessage_sent', ok: true });
+  });
+  return true;
+}
+
+// ---------- agent engines ----------
 let sessionId = null;
-let currentAbort = null;
+let currentAbort = null;   // BYOK (AbortController)
+let currentChild = null;   // Claude Code (child process)
+
+function mcpConfig(cfg) {
+  return { motion: { type: 'http', url: baseUrl(cfg) + '/api/mcp', headers: { Authorization: 'Bearer ' + cfg.token } } };
+}
+const sendToWin = (ev) => win && win.webContents.send('agent:event', ev);
 
 async function agentSend(prompt) {
   const cfg = loadCfg();
-  if (!cfg.token) throw new Error('not_logged_in');
-  if (!cfg.anthropicKey) throw new Error('no_api_key');
+  if (!cfg.token) return sendToWin({ kind: 'done', ok: false, error: 'Not signed in.' });
+  if ((cfg.engine || 'byok') === 'claude-code') return agentSendClaudeCode(cfg, prompt);
+  if (!cfg.anthropicKey) return sendToWin({ kind: 'done', ok: false, error: 'No API key set — add one in Settings.' });
+  return agentSendSdk(cfg, prompt);
+}
 
+// Mode B — BYOK via the Claude Agent SDK.
+async function agentSendSdk(cfg, prompt) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
-  const send = (ev) => win && win.webContents.send('agent:event', ev);
-
+  const send = sendToWin;
   currentAbort = new AbortController();
   const q = query({
     prompt,
@@ -130,59 +170,15 @@ async function agentSend(prompt) {
       resume: sessionId || undefined,
       abortController: currentAbort,
       includePartialMessages: true,
-      systemPrompt:
-        'You are Motion, the user\'s AI Rolodex assistant, embedded in the Motion desktop app. ' +
-        'Use the motion MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
-        'manage the follow-up queue (get_agenda, get_queue, queue_followup, start_sequence, due_sends, register_reply), ' +
-        'and reach out (send_email, send_imessage — default to draft mode unless the user explicitly says send). ' +
-        'Be concise. After acting, summarize what you did in one or two sentences.',
-      mcpServers: {
-        motion: {
-          type: 'http',
-          url: baseUrl(cfg) + '/api/mcp',
-          headers: { Authorization: 'Bearer ' + cfg.token },
-        },
-      },
+      systemPrompt: SYSTEM_PROMPT,
+      mcpServers: mcpConfig(cfg),
       allowedTools: ['mcp__motion__*'],
-      disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'],
+      disallowedTools: BUILTIN_TOOLS_OFF,
       maxTurns: 25,
     },
   });
-
   try {
-    for await (const msg of q) {
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        sessionId = msg.session_id || sessionId;
-      } else if (msg.type === 'stream_event') {
-        const ev = msg.event;
-        if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
-          send({ kind: 'text', text: ev.delta.text });
-        } else if (ev.type === 'content_block_start' && ev.content_block && ev.content_block.type === 'tool_use') {
-          send({ kind: 'tool_start', name: ev.content_block.name });
-        }
-      } else if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
-        for (const block of msg.message.content) {
-          if (block.type === 'tool_use') send({ kind: 'tool_use', name: block.name, input: block.input });
-        }
-      } else if (msg.type === 'user' && msg.message && Array.isArray(msg.message.content)) {
-        for (const block of msg.message.content) {
-          if (block.type === 'tool_result') {
-            const text = Array.isArray(block.content)
-              ? block.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-              : String(block.content || '');
-            send({ kind: 'tool_result', text: text.slice(0, 2000) });
-          }
-        }
-      } else if (msg.type === 'result') {
-        send({
-          kind: 'done',
-          ok: msg.subtype === 'success',
-          usage: msg.usage || null,
-          cost: msg.total_cost_usd != null ? msg.total_cost_usd : null,
-          error: msg.subtype !== 'success' ? (msg.result || msg.subtype) : null,
-        });
-      }
-    }
+    for await (const msg of q) handleAgentMessage(msg, send, true);
   } catch (e) {
     send({ kind: 'done', ok: false, error: String(e && e.message || e) });
   } finally {
@@ -190,19 +186,101 @@ async function agentSend(prompt) {
   }
 }
 
+// Mode A — the user's installed Claude Code (their subscription, no API key).
+function agentSendClaudeCode(cfg, prompt) {
+  const send = sendToWin;
+  const args = [
+    '-p', prompt,
+    '--output-format', 'stream-json', '--verbose',
+    '--model', cfg.model || 'claude-opus-5',
+    '--mcp-config', JSON.stringify({ mcpServers: mcpConfig(cfg) }),
+    '--allowedTools', 'mcp__motion__*',
+    '--disallowedTools', BUILTIN_TOOLS_OFF.join(','),
+    '--append-system-prompt', SYSTEM_PROMPT,
+  ];
+  if (sessionId) args.push('--resume', sessionId);
+  const child = spawn('claude', args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  currentChild = child;
+  let buf = '', errBuf = '', gotResult = false;
+  child.stdout.on('data', (d) => {
+    buf += d.toString();
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try { const msg = JSON.parse(line); if (msg.type === 'result') gotResult = true; handleAgentMessage(msg, send, false); } catch { /* non-JSON noise */ }
+    }
+  });
+  child.stderr.on('data', (d) => { errBuf += d.toString(); });
+  child.on('error', (e) => send({ kind: 'done', ok: false, error: 'Could not start Claude Code: ' + e.message }));
+  child.on('close', (code) => {
+    currentChild = null;
+    if (!gotResult) send({ kind: 'done', ok: code === 0, error: code === 0 ? null : (errBuf.trim().slice(0, 400) || 'Claude Code exited with code ' + code) });
+  });
+}
+
+// Shared message → UI-event mapping for both engines. `streamed` = deltas
+// already arrived as stream_events (SDK), so skip full text blocks to avoid dupes.
+function handleAgentMessage(msg, send, streamed) {
+  if (msg.type === 'system' && msg.subtype === 'init') {
+    sessionId = msg.session_id || sessionId;
+  } else if (msg.type === 'stream_event') {
+    const ev = msg.event;
+    if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
+      send({ kind: 'text', text: ev.delta.text });
+    }
+  } else if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
+    for (const block of msg.message.content) {
+      if (block.type === 'tool_use') send({ kind: 'tool_use', name: block.name, input: block.input });
+      else if (block.type === 'text' && !streamed) send({ kind: 'text_full', text: block.text });
+    }
+  } else if (msg.type === 'user' && msg.message && Array.isArray(msg.message.content)) {
+    for (const block of msg.message.content) {
+      if (block.type === 'tool_result') {
+        const text = Array.isArray(block.content)
+          ? block.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+          : String(block.content || '');
+        send({ kind: 'tool_result', text: text.slice(0, 2000) });
+        maybeExecImessage(text, send);   // native iMessage: run the returned command locally
+      }
+    }
+  } else if (msg.type === 'result') {
+    sessionId = msg.session_id || sessionId;
+    send({
+      kind: 'done',
+      ok: msg.subtype === 'success',
+      usage: msg.usage || null,
+      cost: msg.total_cost_usd != null ? msg.total_cost_usd : null,
+      error: msg.subtype !== 'success' ? (msg.result || msg.subtype) : null,
+    });
+  }
+}
+
 // ---------- IPC ----------
 function registerIpc() {
   ipcMain.handle('cfg:get', () => {
     const c = loadCfg();
-    return { base: baseUrl(c), email: c.email || '', loggedIn: !!c.token, hasKey: !!c.anthropicKey, model: c.model || 'claude-opus-5' };
+    return {
+      base: baseUrl(c), email: c.email || '', loggedIn: !!c.token,
+      hasKey: !!c.anthropicKey, model: c.model || 'claude-opus-5',
+      engine: c.engine || '', onboarded: !!c.onboarded,
+    };
   });
   ipcMain.handle('cfg:setKey', (_e, key) => { const c = loadCfg(); c.anthropicKey = String(key || '').trim(); saveCfg(c); return true; });
   ipcMain.handle('cfg:setModel', (_e, m) => { const c = loadCfg(); c.model = String(m || 'claude-opus-5'); saveCfg(c); return true; });
+  ipcMain.handle('cfg:setEngine', (_e, eng) => { const c = loadCfg(); c.engine = String(eng || 'byok'); saveCfg(c); sessionId = null; return true; });
+  ipcMain.handle('cfg:setOnboarded', () => { const c = loadCfg(); c.onboarded = true; saveCfg(c); return true; });
   ipcMain.handle('auth:login', async () => oauthLogin());
-  ipcMain.handle('auth:logout', () => { const c = loadCfg(); delete c.token; delete c.email; saveCfg(c); sessionId = null; return true; });
+  ipcMain.handle('auth:logout', () => { const c = loadCfg(); delete c.token; delete c.email; delete c.onboarded; saveCfg(c); sessionId = null; return true; });
   ipcMain.handle('engine:detect', async () => ({ claudeCode: await detectClaudeCode() }));
+  ipcMain.handle('imessage:check', () => imessageCheck());
+  ipcMain.handle('open:url', (_e, u) => { if (/^https?:\/\//.test(String(u))) shell.openExternal(String(u)); return true; });
   ipcMain.handle('agent:send', (_e, prompt) => { agentSend(String(prompt || '')); return true; });
-  ipcMain.handle('agent:stop', () => { if (currentAbort) currentAbort.abort(); return true; });
+  ipcMain.handle('agent:stop', () => {
+    if (currentAbort) currentAbort.abort();
+    if (currentChild) { try { currentChild.kill('SIGTERM'); } catch { } }
+    return true;
+  });
   ipcMain.handle('agent:reset', () => { sessionId = null; return true; });
   ipcMain.handle('api:get', async (_e, p) => {
     const c = loadCfg();

@@ -16,50 +16,188 @@ const rel = (iso) => {
 };
 
 let cfg = {};
+let engines = { claudeCode: null };
 
-// ================= gate =================
+const engineReady = () => cfg.engine === 'claude-code' || (cfg.engine === 'byok' && cfg.hasKey);
+
+// ================= onboarding wizard =================
+let wstep = 1;
+const WMAX = 4;
+let bridgePoll = null;
+let bridges = { channels: null, channelsAvailable: true, imessage: null };
+
 async function boot() {
   cfg = await motion.cfg();
-  if (!cfg.loggedIn || !cfg.hasKey) { renderGate(); return; }
-  enterApp();
+  engines = await motion.detectEngines();
+  if (cfg.loggedIn && engineReady() && cfg.onboarded) { enterApp(); return; }
+  wstep = !cfg.loggedIn ? 1 : (!engineReady() ? 2 : 3);
+  renderGate();
+}
+
+function wdots() {
+  let h = '';
+  for (let i = 1; i <= WMAX; i++) h += `<span class="gdot ${i === wstep ? 'on' : i < wstep ? 'past' : ''}"></span>`;
+  return `<div class="gdots">${h}</div>`;
 }
 
 function renderGate() {
   $('#gate').hidden = false; $('#app').hidden = true;
-  const steps = $('#gate-steps');
-  const s1done = cfg.loggedIn;
-  steps.innerHTML = `
-    <div class="step ${s1done ? 'done' : ''}">
-      <span class="n">${s1done ? '✓' : '1'}</span>
-      <div class="t"><b>Sign in to Motion</b><span>${s1done ? esc(cfg.email || 'connected') : 'Google sign-in, opens in your browser'}</span></div>
-      ${s1done ? '' : '<button id="g-login" class="primary">Sign in</button>'}
-    </div>
-    <div class="step ${s1done ? '' : 'dim'}">
-      <span class="n">2</span>
-      <div class="t"><b>Power the agent</b><span>Paste an Anthropic API key (platform credits coming soon)</span>
-        ${s1done ? '<input id="g-key" type="password" placeholder="sk-ant-…">' : ''}
+  const box = $('#gate-steps');
+  const title = $('#gate-title'), sub = $('#gate-sub');
+
+  if (wstep === 1) {
+    title.textContent = 'Your AI Rolodex.';
+    sub.textContent = 'Everyone you know, remembered — and reached — by your agent.';
+    box.innerHTML = wdots() + `
+      <div class="step">
+        <span class="n">1</span>
+        <div class="t"><b>Sign in to Motion</b><span>Google sign-in — opens in your browser</span></div>
+        <button id="g-login" class="primary">Sign in</button>
       </div>
-      ${s1done ? '<button id="g-key-save" class="primary">Save</button>' : ''}
-    </div>
-    <div class="gate-err" id="g-err"></div>`;
-  $('#g-login')?.addEventListener('click', async (e) => {
-    e.target.disabled = true; e.target.textContent = 'Waiting…';
-    try { await motion.login(); cfg = await motion.cfg(); renderGate(); }
-    catch (err) { $('#g-err').textContent = String(err.message || err); e.target.disabled = false; e.target.textContent = 'Sign in'; }
-  });
-  $('#g-key-save')?.addEventListener('click', async () => {
-    const k = $('#g-key').value.trim();
-    if (!k.startsWith('sk-')) { $('#g-err').textContent = 'That does not look like an Anthropic API key.'; return; }
-    await motion.setKey(k); cfg = await motion.cfg();
-    if (cfg.loggedIn && cfg.hasKey) enterApp(); else renderGate();
-  });
+      <div class="gate-err" id="g-err"></div>`;
+    $('#g-login').addEventListener('click', async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Waiting…';
+      try { await motion.login(); cfg = await motion.cfg(); wstep = 2; renderGate(); }
+      catch (err) { $('#g-err').textContent = String(err.message || err); e.target.disabled = false; e.target.textContent = 'Sign in'; }
+    });
+    return;
+  }
+
+  if (wstep === 2) {
+    title.textContent = 'Power your agent.';
+    sub.textContent = 'Pick how Motion thinks. You can change this anytime in Settings.';
+    const cc = engines.claudeCode;
+    box.innerHTML = wdots() + `
+      <div class="engine-card ${cc ? '' : 'disabled'}" data-engine="claude-code">
+        <div class="ec-head"><b>Use my Claude subscription</b>${cc ? '<span class="ec-tag ok">Detected · ' + esc(cc) + '</span>' : '<span class="ec-tag">Claude Code not found</span>'}</div>
+        <span>Runs through your installed Claude Code — no extra cost, uses your Pro/Max plan.</span>
+      </div>
+      <div class="engine-card" data-engine="byok">
+        <div class="ec-head"><b>Bring my own API key</b><span class="ec-tag">Metered via Anthropic</span></div>
+        <span>Pay-per-use with your Anthropic key. Powered by Claude Opus 5.</span>
+        <input id="g-key" type="password" placeholder="sk-ant-…" ${cfg.hasKey ? 'value="" placeholder="••••••••  (key saved — paste to replace)"' : ''}>
+      </div>
+      <div class="engine-card disabled">
+        <div class="ec-head"><b>Motion credits</b><span class="ec-tag">Coming soon</span></div>
+        <span>No key, no setup — buy credits and go. Powered by Claude Opus 5.</span>
+      </div>
+      <div class="gate-err" id="g-err"></div>
+      <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-next" class="primary wide">Continue</button></div>`;
+    let chosen = cfg.engine || (cc ? 'claude-code' : 'byok');
+    const mark = () => box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.classList.toggle('sel', c.dataset.engine === chosen));
+    mark();
+    box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.addEventListener('click', () => {
+      if (c.classList.contains('disabled')) return;
+      chosen = c.dataset.engine; mark();
+      if (chosen === 'byok') box.querySelector('#g-key').focus();
+    }));
+    $('#g-back').addEventListener('click', () => { wstep = 1; renderGate(); });
+    $('#g-next').addEventListener('click', async () => {
+      if (chosen === 'byok') {
+        const k = $('#g-key').value.trim();
+        if (k) { if (!k.startsWith('sk-')) { $('#g-err').textContent = 'That does not look like an Anthropic API key.'; return; } await motion.setKey(k); }
+        else if (!cfg.hasKey) { $('#g-err').textContent = 'Paste your Anthropic API key to continue.'; return; }
+      }
+      await motion.setEngine(chosen);
+      cfg = await motion.cfg();
+      wstep = 3; renderGate();
+    });
+    return;
+  }
+
+  if (wstep === 3) {
+    title.textContent = 'Connect your bridges.';
+    sub.textContent = 'Live checks — each turns green when the bridge is up. All optional.';
+    box.innerHTML = wdots() + `
+      <div class="bridge" id="br-rolodex">
+        <span class="bstat ok"></span>
+        <div class="t"><b>Rolodex</b><span>${esc(cfg.email || 'connected')}</span></div>
+      </div>
+      <div class="bridge" id="br-channels">
+        <span class="bstat wait"></span>
+        <div class="t"><b>Email &amp; LinkedIn</b><span id="br-ch-sub">Checking…</span></div>
+        <div class="bactions">
+          <button class="ghost" data-conn="GOOGLE">✉️ Email</button>
+          <button class="ghost" data-conn="LINKEDIN">in LinkedIn</button>
+        </div>
+      </div>
+      <div class="bridge" id="br-imsg">
+        <span class="bstat wait"></span>
+        <div class="t"><b>iMessage</b><span id="br-im-sub">Send texts from your own number — grant the one-time permission</span></div>
+        <button id="g-imsg" class="ghost">Enable</button>
+      </div>
+      <div class="gate-err" id="g-err"></div>
+      <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-next" class="primary wide">Continue</button></div>`;
+    $('#g-back').addEventListener('click', () => { stopBridgePoll(); wstep = 2; renderGate(); });
+    $('#g-next').addEventListener('click', () => { stopBridgePoll(); wstep = 4; renderGate(); });
+    box.querySelectorAll('[data-conn]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true; const old = b.textContent; b.textContent = 'Opening…';
+      const { status, body } = await motion.post('/api/channels/connect', { provider: b.dataset.conn });
+      if (status === 200 && body.url) { motion.openUrl(body.url); $('#br-ch-sub').textContent = 'Finish connecting in your browser — this turns green automatically.'; }
+      else { bridges.channelsAvailable = false; $('#br-ch-sub').textContent = body.error || 'Channels service not configured yet — skip for now.'; }
+      b.disabled = false; b.textContent = old;
+    }));
+    $('#g-imsg').addEventListener('click', async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Checking…';
+      $('#br-im-sub').textContent = 'macOS may ask to allow controlling Messages — click OK.';
+      const r = await motion.imessageCheck();
+      bridges.imessage = r.ok;
+      setBridge('#br-imsg', r.ok);
+      $('#br-im-sub').textContent = r.ok ? 'Ready — your agent can text from your number.' : 'Not enabled: ' + (r.error || 'permission denied') + '. Retry, or fix in System Settings → Privacy → Automation.';
+      e.target.disabled = false; e.target.textContent = r.ok ? 'Re-check' : 'Enable';
+    });
+    startBridgePoll();
+    return;
+  }
+
+  // step 4 — done
+  stopBridgePoll();
+  title.textContent = 'You’re in motion.';
+  sub.textContent = 'Talk to your agent — it works the Rolodex.';
+  const sum = (ok, label, note) => `
+    <div class="bridge slim"><span class="bstat ${ok ? 'ok' : 'off'}"></span>
+      <div class="t"><b>${label}</b><span>${note}</span></div></div>`;
+  box.innerHTML = wdots() +
+    sum(true, 'Rolodex', esc(cfg.email || 'connected')) +
+    sum(true, 'Agent', cfg.engine === 'claude-code' ? 'Claude Code (your subscription)' : 'API key · ' + esc((cfg.model || 'claude-opus-5').replace('claude-', ''))) +
+    sum(!!(bridges.channels > 0), 'Email & LinkedIn', bridges.channels > 0 ? bridges.channels + ' channel(s) connected' : 'add anytime in Settings') +
+    sum(!!bridges.imessage, 'iMessage', bridges.imessage ? 'ready — texts from your number' : 'enable anytime') + `
+    <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-enter" class="primary wide">Enter Motion →</button></div>`;
+  $('#g-back').addEventListener('click', () => { wstep = 3; renderGate(); });
+  $('#g-enter').addEventListener('click', async () => { await motion.setOnboarded(); cfg = await motion.cfg(); enterApp(); });
 }
 
+function setBridge(sel, ok) {
+  const el = $(sel + ' .bstat');
+  if (el) el.className = 'bstat ' + (ok ? 'ok' : 'wait');
+}
+
+function startBridgePoll() {
+  stopBridgePoll();
+  const tick = async () => {
+    const { status, body } = await motion.get('/api/channel_accounts');
+    if (status === 200) {
+      const rows = Array.isArray(body) ? body : (body.rows || []);
+      bridges.channels = rows.length;
+      setBridge('#br-channels', rows.length > 0);
+      if (rows.length > 0) { const s = $('#br-ch-sub'); if (s) s.textContent = rows.length + ' channel(s) connected'; }
+      else if (bridges.channelsAvailable) { const s = $('#br-ch-sub'); if (s && s.textContent === 'Checking…') s.textContent = 'Connect an inbox or LinkedIn — opens in your browser.'; }
+    }
+  };
+  tick();
+  bridgePoll = setInterval(tick, 3500);
+}
+function stopBridgePoll() { if (bridgePoll) { clearInterval(bridgePoll); bridgePoll = null; } }
+
 // ================= app =================
+function engineLabel() {
+  return cfg.engine === 'claude-code'
+    ? 'Claude Code'
+    : (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · key';
+}
 async function enterApp() {
   $('#gate').hidden = true; $('#app').hidden = false;
-  const eng = await motion.detectEngines();
-  $('#engine-badge').textContent = (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · BYOK' + (eng.claudeCode ? ' · CC available' : '');
+  $('#engine-badge').textContent = engineLabel();
   $('#engine-badge').classList.add('ok');
   loadContacts();
 }
@@ -117,6 +255,18 @@ motion.onAgent((ev) => {
     setThinking(false);
     ensureBotBubble().textContent += ev.text;
     scrollThread();
+  } else if (ev.kind === 'text_full') {
+    setThinking(false);
+    ensureBotBubble().textContent += ev.text;
+    botBubble = null;
+    scrollThread();
+  } else if (ev.kind === 'imessage_sent') {
+    setThinking(false);
+    threadEl().insertAdjacentHTML('beforeend', ev.ok
+      ? '<div class="action-card result"><span class="ic">📱</span><div><span class="nm">iMessage sent from your Mac</span></div></div>'
+      : `<div class="action-card"><span class="ic" style="color:var(--red)">✕</span><div><span class="nm">iMessage failed</span><div class="detail">${esc(ev.error || 'Is Messages signed in?')}</div></div></div>`);
+    scrollThread();
+    setThinking(true);
   } else if (ev.kind === 'tool_use') {
     setThinking(false);
     addActionCard(ev.name, ev.input);
@@ -277,9 +427,13 @@ document.addEventListener('keydown', (e) => {
 // ---------------- settings ----------------
 $('#settings-btn').addEventListener('click', async () => {
   cfg = await motion.cfg();
-  const eng = await motion.detectEngines();
+  engines = await motion.detectEngines();
   $('#set-email').textContent = cfg.email || '(not signed in)';
-  $('#set-engine').textContent = 'BYOK (Anthropic API key)' + (eng.claudeCode ? ` — Claude Code ${eng.claudeCode} detected (mode coming soon)` : '');
+  const engSel = $('#set-engine');
+  engSel.value = cfg.engine || 'byok';
+  engSel.querySelector('[value="claude-code"]').disabled = !engines.claudeCode;
+  engSel.querySelector('[value="claude-code"]').textContent = engines.claudeCode
+    ? `Claude Code (my subscription) — ${engines.claudeCode}` : 'Claude Code — not installed';
   $('#set-model').value = cfg.model || 'claude-opus-5';
   $('#set-key').value = '';
   $('#set-key').placeholder = cfg.hasKey ? '••••••••  (saved — paste to replace)' : 'sk-ant-…';
@@ -290,8 +444,9 @@ $('#set-save').addEventListener('click', async () => {
   const k = $('#set-key').value.trim();
   if (k) await motion.setKey(k);
   await motion.setModel($('#set-model').value);
+  await motion.setEngine($('#set-engine').value);
   cfg = await motion.cfg();
-  $('#engine-badge').textContent = (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · BYOK';
+  $('#engine-badge').textContent = engineLabel();
   $('#modal').hidden = true;
 });
 $('#set-logout').addEventListener('click', async () => { await motion.logout(); location.reload(); });

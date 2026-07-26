@@ -67,7 +67,12 @@
     <div class="modal-card">
       <h3>Settings</h3>
       <div class="field"><label>Signed in as</label><div id="set-email" class="static"></div></div>
-      <div class="field"><label>Agent engine</label><div id="set-engine" class="static"></div></div>
+      <div class="field"><label>Agent engine</label>
+        <select id="set-engine">
+          <option value="byok">Anthropic API key (BYOK)</option>
+          <option value="claude-code">Claude Code (my subscription)</option>
+        </select>
+      </div>
       <div class="field"><label>Anthropic API key (BYOK)</label><input id="set-key" type="password" placeholder="sk-ant-…"></div>
       <div class="field"><label>Model</label>
         <select id="set-model">
