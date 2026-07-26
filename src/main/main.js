@@ -74,8 +74,8 @@ async function oauthLogin() {
     srv.on('request', (req, res) => {
       const u = new URL(req.url, `http://127.0.0.1:${port}`);
       if (u.pathname !== '/callback') { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<html><body style="font-family:system-ui;text-align:center;padding-top:20vh;background:#0c0d10;color:#e4e4e7"><h2>Motion connected ✓</h2><p>You can close this tab and return to the app.</p></body></html>');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<html><head><meta charset="utf-8"></head><body style="font-family:system-ui;text-align:center;padding-top:20vh;background:#071022;color:#e4e4e7"><h2>Motion connected ✓</h2><p style="color:#7c89a6">You can close this tab and return to the app.</p></body></html>');
       clearTimeout(timer); srv.close();
       if (u.searchParams.get('state') !== state) return reject(new Error('State mismatch'));
       if (u.searchParams.get('error')) return reject(new Error(u.searchParams.get('error')));
