@@ -30,6 +30,7 @@
       <header class="pane-head">
         <div class="brand small"><img class="logo" src="assets/logo.png" alt=""> Motion <span class="by">by Benmore Technologies</span></div>
         <div class="head-right">
+          <button id="balance-chip" class="badge" title="Motion credits — click for billing" hidden>⚡ —</button>
           <span id="engine-badge" class="badge" title="Agent engine"></span>
           <button id="new-chat" class="ghost" title="New conversation">↺</button>
           <button id="settings-btn" class="ghost" title="Settings">⚙</button>
@@ -70,6 +71,7 @@
       <div class="field"><label>Signed in as</label><div id="set-email" class="static"></div></div>
       <div class="field"><label>Agent engine</label>
         <select id="set-engine">
+          <option value="platform">Motion credits (no key needed)</option>
           <option value="byok">Anthropic API key (BYOK)</option>
           <option value="claude-code">Claude Code (my subscription)</option>
         </select>
@@ -86,6 +88,29 @@
         <span class="spacer"></span>
         <button id="set-cancel" class="ghost">Cancel</button>
         <button id="set-save" class="primary wide">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Billing modal — balance, top-up packs, usage history from the ledger -->
+  <div id="billing-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3>Motion credits</h3>
+      <div class="field"><label>Balance</label><div id="bill-balance" class="static" style="font-size:22px;font-weight:600">—</div></div>
+      <div class="field"><label>Top up</label>
+        <div style="display:flex;gap:8px">
+          <button class="ghost" data-pack="10" style="flex:1">$10</button>
+          <button class="ghost" data-pack="25" style="flex:1">$25</button>
+          <button class="ghost" data-pack="100" style="flex:1">$100</button>
+        </div>
+        <div id="bill-err" style="color:var(--red);font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="field"><label>Recent activity</label>
+        <div id="bill-ledger" style="max-height:220px;overflow:auto;font-size:12.5px"></div>
+      </div>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button id="bill-close" class="ghost">Close</button>
       </div>
     </div>
   </div>

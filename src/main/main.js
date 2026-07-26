@@ -18,6 +18,11 @@ const SYSTEM_PROMPT =
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
 const DEFAULT_BASE = process.env.MOTION_URL || 'https://motion-v9t7fg.benmore.ai';
+// Platform AI ("Motion credits"): the metering proxy in front of Anthropic.
+// Set via MOTION_PROXY_URL or `proxy` in userData/config.json; when present the
+// "Motion credits" engine lights up and becomes the onboarding default.
+const DEFAULT_PROXY = process.env.MOTION_PROXY_URL || '';
+const proxyUrl = (cfg) => (cfg.proxy || DEFAULT_PROXY).replace(/\/$/, '');
 
 let win = null;
 
@@ -152,21 +157,38 @@ const sendToWin = (ev) => win && win.webContents.send('agent:event', ev);
 async function agentSend(prompt) {
   const cfg = loadCfg();
   if (!cfg.token) return sendToWin({ kind: 'done', ok: false, error: 'Not signed in.' });
-  if ((cfg.engine || 'byok') === 'claude-code') return agentSendClaudeCode(cfg, prompt);
+  const engine = cfg.engine || 'byok';
+  if (engine === 'claude-code') return agentSendClaudeCode(cfg, prompt);
+  if (engine === 'platform') {
+    if (!proxyUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Motion credits are almost live — switch engines in Settings for now.' });
+    return agentSendSdk(cfg, prompt, true);
+  }
   if (!cfg.anthropicKey) return sendToWin({ kind: 'done', ok: false, error: 'No API key set — add one in Settings.' });
-  return agentSendSdk(cfg, prompt);
+  return agentSendSdk(cfg, prompt, false);
 }
 
-// Mode B — BYOK via the Claude Agent SDK.
-async function agentSendSdk(cfg, prompt) {
+// Modes B + C — the Claude Agent SDK, keyed two ways:
+//   BYOK: the user's own Anthropic key, straight to api.anthropic.com.
+//   Platform ("Motion credits"): ANTHROPIC_BASE_URL → the metering proxy,
+//   ANTHROPIC_AUTH_TOKEN → the user's Motion session token. The proxy meters
+//   usage and deducts wallet credits (cost × 1.5); no user key involved.
+async function agentSendSdk(cfg, prompt, platform) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const send = sendToWin;
   currentAbort = new AbortController();
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_BASE_URL; delete env.ANTHROPIC_AUTH_TOKEN;
+  if (platform) {
+    env.ANTHROPIC_BASE_URL = proxyUrl(cfg);
+    env.ANTHROPIC_AUTH_TOKEN = cfg.token;
+  } else {
+    env.ANTHROPIC_API_KEY = cfg.anthropicKey;
+  }
   const q = query({
     prompt,
     options: {
       model: cfg.model || 'claude-opus-5',
-      env: { ...process.env, ANTHROPIC_API_KEY: cfg.anthropicKey },
+      env,
       resume: sessionId || undefined,
       abortController: currentAbort,
       includePartialMessages: true,
@@ -264,6 +286,7 @@ function registerIpc() {
       base: baseUrl(c), email: c.email || '', loggedIn: !!c.token,
       hasKey: !!c.anthropicKey, model: c.model || 'claude-opus-5',
       engine: c.engine || '', onboarded: !!c.onboarded,
+      platformReady: !!proxyUrl(c),
     };
   });
   ipcMain.handle('cfg:setKey', (_e, key) => { const c = loadCfg(); c.anthropicKey = String(key || '').trim(); saveCfg(c); return true; });

@@ -18,7 +18,10 @@ const rel = (iso) => {
 let cfg = {};
 let engines = { claudeCode: null };
 
-const engineReady = () => cfg.engine === 'claude-code' || (cfg.engine === 'byok' && cfg.hasKey);
+const engineReady = () =>
+  cfg.engine === 'claude-code' ||
+  (cfg.engine === 'byok' && cfg.hasKey) ||
+  (cfg.engine === 'platform' && cfg.platformReady);
 
 // ================= onboarding wizard =================
 let wstep = 1;
@@ -67,7 +70,12 @@ function renderGate() {
     title.textContent = 'Power your agent.';
     sub.textContent = 'Pick how Motion thinks. You can change this anytime in Settings.';
     const cc = engines.claudeCode;
+    const plat = cfg.platformReady;
     box.innerHTML = wdots() + `
+      <div class="engine-card ${plat ? '' : 'disabled'}" ${plat ? 'data-engine="platform"' : ''}>
+        <div class="ec-head"><b>Motion credits</b><span class="ec-tag ${plat ? 'ok' : ''}">${plat ? 'Recommended · $5 free to start' : 'Almost live'}</span></div>
+        <span>No key, no setup — works instantly. Powered by Claude Opus 5 · $5 free to start.</span>
+      </div>
       <div class="engine-card ${cc ? '' : 'disabled'}" data-engine="claude-code">
         <div class="ec-head"><b>Use my Claude subscription</b>${cc ? '<span class="ec-tag ok">Detected · ' + esc(cc) + '</span>' : '<span class="ec-tag">Claude Code not found</span>'}</div>
         <span>Runs through your installed Claude Code — no extra cost, uses your Pro/Max plan.</span>
@@ -77,13 +85,9 @@ function renderGate() {
         <span>Pay-per-use with your Anthropic key. Powered by Claude Opus 5.</span>
         <input id="g-key" type="password" placeholder="sk-ant-…" ${cfg.hasKey ? 'value="" placeholder="••••••••  (key saved — paste to replace)"' : ''}>
       </div>
-      <div class="engine-card disabled">
-        <div class="ec-head"><b>Motion credits</b><span class="ec-tag">Coming soon</span></div>
-        <span>No key, no setup — buy credits and go. Powered by Claude Opus 5.</span>
-      </div>
       <div class="gate-err" id="g-err"></div>
       <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-next" class="primary wide">Continue</button></div>`;
-    let chosen = cfg.engine || (cc ? 'claude-code' : 'byok');
+    let chosen = cfg.engine || (plat ? 'platform' : cc ? 'claude-code' : 'byok');
     const mark = () => box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.classList.toggle('sel', c.dataset.engine === chosen));
     mark();
     box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.addEventListener('click', () => {
@@ -159,7 +163,9 @@ function renderGate() {
       <div class="t"><b>${label}</b><span>${note}</span></div></div>`;
   box.innerHTML = wdots() +
     sum(true, 'Rolodex', esc(cfg.email || 'connected')) +
-    sum(true, 'Agent', cfg.engine === 'claude-code' ? 'Claude Code (your subscription)' : 'API key · ' + esc((cfg.model || 'claude-opus-5').replace('claude-', ''))) +
+    sum(true, 'Agent', cfg.engine === 'platform' ? 'Motion credits · $5 free to start'
+      : cfg.engine === 'claude-code' ? 'Claude Code (your subscription)'
+      : 'API key · ' + esc((cfg.model || 'claude-opus-5').replace('claude-', ''))) +
     sum(!!(bridges.channels > 0), 'Email & LinkedIn', bridges.channels > 0 ? bridges.channels + ' channel(s) connected' : 'add anytime in Settings') +
     sum(!!bridges.imessage, 'iMessage', bridges.imessage ? 'ready — texts from your number' : 'enable anytime') + `
     <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-enter" class="primary wide">Enter Motion →</button></div>`;
@@ -191,6 +197,7 @@ function stopBridgePoll() { if (bridgePoll) { clearInterval(bridgePoll); bridgeP
 
 // ================= app =================
 function engineLabel() {
+  if (cfg.engine === 'platform') return 'Motion credits';
   return cfg.engine === 'claude-code'
     ? 'Claude Code'
     : (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · key';
@@ -200,7 +207,51 @@ async function enterApp() {
   $('#engine-badge').textContent = engineLabel();
   $('#engine-badge').classList.add('ok');
   loadContacts();
+  refreshBalance();
 }
+
+// ---------------- billing (wallet chip + modal) ----------------
+let walletCache = null;
+const fmtCents = (c) => '$' + (Number(c || 0) / 100).toFixed(2);
+
+async function refreshBalance() {
+  const { status, body } = await motion.get('/api/billing/wallet');
+  if (status !== 200) { $('#balance-chip').hidden = true; return null; }
+  walletCache = body;
+  const chip = $('#balance-chip');
+  chip.hidden = false;
+  chip.textContent = '⚡ ' + fmtCents(body.balance_cents);
+  chip.classList.toggle('ok', body.balance_cents > 0);
+  return body;
+}
+
+const LEDGER_ICON = { grant: '🎁', topup: '＋', ai: '✨', channel: '✉️' };
+function openBilling() {
+  $('#billing-modal').hidden = false;
+  $('#bill-err').textContent = '';
+  const render = (w) => {
+    if (!w) return;
+    $('#bill-balance').textContent = fmtCents(w.balance_cents);
+    const rows = Array.isArray(w.ledger) ? w.ledger : [];
+    $('#bill-ledger').innerHTML = rows.length ? rows.map((r) => `
+      <div style="display:flex;gap:8px;align-items:center;padding:6px 2px;border-bottom:1px solid var(--border)">
+        <span>${LEDGER_ICON[r.kind] || '·'}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx2)">${esc(r.meta || r.kind)}</span>
+        <span style="color:${r.cents < 0 ? 'var(--tx2)' : 'var(--green, #4cb782)'};font-variant-numeric:tabular-nums">${r.cents < 0 ? '−' : '+'}${fmtCents(Math.abs(r.cents))}</span>
+      </div>`).join('') : '<div style="color:var(--tx3)">No activity yet.</div>';
+  };
+  render(walletCache);
+  refreshBalance().then(render);
+}
+$('#balance-chip').addEventListener('click', openBilling);
+$('#bill-close').addEventListener('click', () => { $('#billing-modal').hidden = true; });
+document.querySelectorAll('#billing-modal [data-pack]').forEach((b) => b.addEventListener('click', async () => {
+  b.disabled = true; $('#bill-err').textContent = '';
+  const { status, body } = await motion.post('/api/billing/topup', { pack: b.dataset.pack });
+  if (status === 200 && body.url) motion.openUrl(body.url);
+  else $('#bill-err').textContent = (body && body.error) || 'Could not start checkout.';
+  b.disabled = false;
+}));
 
 // ---------------- chat ----------------
 let botBubble = null;   // current streaming bubble
@@ -283,7 +334,14 @@ motion.onAgent((ev) => {
       const u = ev.usage || {};
       const bits = [];
       if (u.input_tokens != null) bits.push(`${u.input_tokens}▸${u.output_tokens} tok`);
-      if (ev.cost != null) bits.push(`<span class="cost">$${Number(ev.cost).toFixed(4)}</span>`);
+      if (cfg.engine === 'platform') {
+        const before = walletCache ? walletCache.balance_cents : null;
+        refreshBalance().then((w) => {
+          if (!w) return;
+          const burned = before != null ? before - w.balance_cents : null;
+          if (burned > 0) $('#statusline').innerHTML += ` · <span class="cost">−${fmtCents(burned)} credits</span>`;
+        });
+      } else if (ev.cost != null) bits.push(`<span class="cost">$${Number(ev.cost).toFixed(4)}</span>`);
       $('#statusline').innerHTML = bits.join(' · ');
     } else {
       $('#statusline').innerHTML = `<span style="color:var(--red)">${esc(ev.error || 'agent error')}</span>`;
@@ -517,6 +575,9 @@ $('#settings-btn').addEventListener('click', async () => {
   $('#set-email').textContent = cfg.email || '(not signed in)';
   const engSel = $('#set-engine');
   engSel.value = cfg.engine || 'byok';
+  engSel.querySelector('[value="platform"]').disabled = !cfg.platformReady;
+  engSel.querySelector('[value="platform"]').textContent = cfg.platformReady
+    ? 'Motion credits (no key needed)' : 'Motion credits — almost live';
   engSel.querySelector('[value="claude-code"]').disabled = !engines.claudeCode;
   engSel.querySelector('[value="claude-code"]').textContent = engines.claudeCode
     ? `Claude Code (my subscription) — ${engines.claudeCode}` : 'Claude Code — not installed';
