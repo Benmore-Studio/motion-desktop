@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>Motion</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Drag strip for hiddenInset title bar -->
+  <div id="drag"></div>
+
+  <!-- Onboarding / lock screen -->
+  <div id="gate" class="gate" hidden>
+    <div class="gate-card">
+      <div class="brand"><span class="logo"></span> Motion</div>
+      <h1 id="gate-title">Your AI Rolodex.</h1>
+      <p id="gate-sub">Sign in to connect your Rolodex, then add a key to power the agent.</p>
+      <div id="gate-steps"></div>
+    </div>
+  </div>
+
+  <!-- Main 2-pane layout -->
+  <div id="app" class="app" hidden>
+    <!-- Pane 1: chat + actions -->
+    <section class="chat-pane">
+      <header class="pane-head">
+        <div class="brand small"><span class="logo"></span> Motion</div>
+        <div class="head-right">
+          <span id="engine-badge" class="badge" title="Agent engine"></span>
+          <button id="new-chat" class="ghost" title="New conversation">↺</button>
+          <button id="settings-btn" class="ghost" title="Settings">⚙</button>
+        </div>
+      </header>
+      <div id="thread" class="thread">
+        <div class="hello">
+          <div class="hello-logo"></div>
+          <h2>Talk to your Rolodex.</h2>
+          <p>“Log that I met Dana at the summit” · “Who haven’t I talked to in a month?” · “Draft a follow-up to Sam about pricing”</p>
+        </div>
+      </div>
+      <footer class="composer">
+        <textarea id="input" rows="1" placeholder="Message Motion…"></textarea>
+        <button id="send" class="primary">↑</button>
+      </footer>
+      <div id="statusline" class="statusline"></div>
+    </section>
+
+    <!-- Pane 2: context DB -->
+    <section class="db-pane">
+      <header class="pane-head db-head">
+        <div class="tabs">
+          <button class="tab on" data-tab="contacts">Contacts</button>
+          <button class="tab" data-tab="queue">Queue</button>
+        </div>
+        <input id="db-search" placeholder="Search everything…  ⌘K" autocomplete="off">
+      </header>
+      <div id="db-body" class="db-body"></div>
+    </section>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3>Settings</h3>
+      <div class="field"><label>Signed in as</label><div id="set-email" class="static"></div></div>
+      <div class="field"><label>Agent engine</label><div id="set-engine" class="static"></div></div>
+      <div class="field"><label>Anthropic API key (BYOK)</label><input id="set-key" type="password" placeholder="sk-ant-…"></div>
+      <div class="field"><label>Model</label>
+        <select id="set-model">
+          <option value="claude-opus-5">Claude Opus 5 (default)</option>
+          <option value="claude-sonnet-5">Claude Sonnet 5 (cheaper)</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button id="set-logout" class="ghost danger">Sign out</button>
+        <span class="spacer"></span>
+        <button id="set-cancel" class="ghost">Cancel</button>
+        <button id="set-save" class="primary wide">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

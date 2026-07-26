@@ -1,0 +1,26 @@
+{
+  "name": "motion-desktop",
+  "productName": "Motion",
+  "version": "0.1.0",
+  "description": "Motion — your AI Rolodex. Desktop cockpit: agent chat + context database.",
+  "main": "src/main/main.js",
+  "license": "MIT",
+  "author": "Benmore",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  },
+  "build": {
+    "appId": "tech.benmore.motion",
+    "mac": {
+      "category": "public.app-category.productivity"
+    }
+  }
+}
