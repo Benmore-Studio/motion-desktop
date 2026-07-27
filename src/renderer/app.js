@@ -208,7 +208,24 @@ async function enterApp() {
   $('#engine-badge').classList.add('ok');
   loadContacts();
   refreshBalance();
+  startDataPoll();
 }
+
+// The right pane used to refresh ONLY when an agent turn finished, so rows
+// created any other way (web app, CLI, another device) never showed up and the
+// list looked stuck. Poll the active tab instead; pause while hidden.
+let dataPoll = null;
+function refreshActiveTab(soft) {
+  if ($('#app').hidden) return;
+  if (currentTab === 'contacts') loadContacts(soft);
+  else if (currentTab === 'queue') loadQueue(soft);
+  else loadMeetings(soft);
+}
+function startDataPoll() {
+  if (dataPoll) clearInterval(dataPoll);
+  dataPoll = setInterval(() => { if (!document.hidden) refreshActiveTab(true); }, 7000);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActiveTab(true); });
 
 // ---------------- billing (wallet chip + modal) ----------------
 let walletCache = null;
@@ -278,7 +295,7 @@ function ensureBotBubble() {
 }
 function addActionCard(name, input) {
   clearHello();
-  const nice = String(name || '').replace(/^mcp__motion__/, '');
+  const nice = String(name || '').replace(/^mcp__(?:blitz|motion)__/, '');
   const detail = input ? esc(JSON.stringify(input)).slice(0, 220) : '';
   threadEl().insertAdjacentHTML('beforeend',
     `<div class="action-card"><span class="ic">⚙</span><div><span class="nm">${esc(nice)}</span>${detail ? `<div class="detail">${detail}</div>` : ''}</div></div>`);
@@ -377,6 +394,13 @@ $('#new-chat').addEventListener('click', async () => {
 let currentTab = 'contacts';
 let contacts = [];
 
+$('#db-refresh').addEventListener('click', async () => {
+  const b = $('#db-refresh');
+  b.classList.add('spin');
+  await Promise.all([refreshActiveTab(false), refreshBalance()]);
+  setTimeout(() => b.classList.remove('spin'), 350);
+});
+
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
   currentTab = t.dataset.tab;
@@ -386,10 +410,11 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 }));
 
 // ---- Meetings tab: Calendly-style booking-page setup + upcoming bookings ----
-async function loadMeetings() {
+async function loadMeetings(soft) {
   const el = $('#db-body');
-  delete el.dataset.detail;
-  el.innerHTML = '<div class="empty">Loading…</div>';
+  // Never stomp a detail view or a booking form the user is mid-edit in.
+  if (soft && (el.dataset.detail || el.querySelector('#bp-title'))) return;
+  if (!soft) { delete el.dataset.detail; el.innerHTML = '<div class="empty">Loading…</div>'; }
   const [pg, bk] = await Promise.all([
     motion.get('/api/booking_pages?per_page=5'),
     motion.get('/api/bookings?per_page=100&orderBy=start_at:asc'),
@@ -473,7 +498,9 @@ async function loadContacts(soft) {
   const { status, body } = await motion.get('/api/targets?per_page=500&orderBy=updated_at:desc');
   if (status !== 200) { if (!soft) $('#db-body').innerHTML = '<div class="empty">Could not load contacts.</div>'; return; }
   contacts = Array.isArray(body) ? body : (body.rows || []);
-  if (currentTab === 'contacts' && !$('#db-body').dataset.detail) renderContacts();
+  if (currentTab !== 'contacts') return;
+  if (soft && $('#db-body').dataset.detail) return;
+  renderContacts();
 }
 function renderContacts(list) {
   const rows = (list || contacts);
@@ -523,10 +550,10 @@ async function openBrief(id) {
   el.querySelector('.back').addEventListener('click', (e) => { e.preventDefault(); renderContacts(); });
 }
 
-async function loadQueue() {
+async function loadQueue(soft) {
   const el = $('#db-body');
-  delete el.dataset.detail;
-  el.innerHTML = '<div class="empty">Loading…</div>';
+  if (soft && el.dataset.detail) return;
+  if (!soft) { delete el.dataset.detail; el.innerHTML = '<div class="empty">Loading…</div>'; }
   const { status, body } = await motion.get('/api/queue');
   if (status !== 200) { el.innerHTML = '<div class="empty">Could not load the queue.</div>'; return; }
   const due = body.due || [], up = body.upcoming || [];
@@ -569,8 +596,50 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------------- settings ----------------
+// ---- connected accounts (Settings) ----
+const PROV_LABEL = { GOOGLE: 'Email', OUTLOOK: 'Outlook', LINKEDIN: 'LinkedIn', WHATSAPP: 'WhatsApp' };
+let chanPoll = null;
+
+async function loadChannels() {
+  const box = $('#set-channels');
+  if (!box) return;
+  const { status, body } = await motion.get('/api/channel_accounts');
+  if (status !== 200) { box.innerHTML = '<span class="chan-empty">Could not load your accounts.</span>'; return; }
+  const rows = Array.isArray(body) ? body : (body.rows || []);
+  if (!rows.length) { box.innerHTML = '<span class="chan-empty">Nothing connected yet — add one below.</span>'; return; }
+  box.innerHTML = rows.map((r) => {
+    const paused = r.status === 'paused';
+    return `<div class="chan-row">
+      <span class="prov">${esc(PROV_LABEL[r.provider] || r.provider || '—')}</span>
+      <span class="who">${esc(r.display || '')}</span>
+      <span class="chan-badge ${paused ? 'paused' : 'ok'}">${paused ? 'paused' : 'connected'}</span>
+    </div>`;
+  }).join('');
+}
+
+document.querySelectorAll('#modal [data-conn]').forEach((b) => b.addEventListener('click', async () => {
+  b.disabled = true; const old = b.textContent; b.textContent = 'Opening…';
+  $('#set-chan-err').textContent = '';
+  const { status, body } = await motion.post('/api/channels/connect', { provider: b.dataset.conn });
+  if (status === 200 && body.url) {
+    motion.openUrl(body.url);
+    $('#set-chan-err').textContent = 'Finish connecting in your browser — this list updates automatically.';
+    // Poll while the user completes the hosted auth wizard.
+    if (chanPoll) clearInterval(chanPoll);
+    let ticks = 0;
+    chanPoll = setInterval(() => {
+      if (++ticks > 60 || $('#modal').hidden) { clearInterval(chanPoll); chanPoll = null; return; }
+      loadChannels();
+    }, 3000);
+  } else {
+    $('#set-chan-err').textContent = (body && body.error) || 'Could not start the connection.';
+  }
+  b.disabled = false; b.textContent = old;
+}));
+
 $('#settings-btn').addEventListener('click', async () => {
   cfg = await motion.cfg();
+  loadChannels();
   engines = await motion.detectEngines();
   $('#set-email').textContent = cfg.email || '(not signed in)';
   const engSel = $('#set-engine');
@@ -586,7 +655,10 @@ $('#settings-btn').addEventListener('click', async () => {
   $('#set-key').placeholder = cfg.hasKey ? '••••••••  (saved — paste to replace)' : 'sk-ant-…';
   $('#modal').hidden = false;
 });
-$('#set-cancel').addEventListener('click', () => { $('#modal').hidden = true; });
+$('#set-cancel').addEventListener('click', () => {
+  $('#modal').hidden = true;
+  if (chanPoll) { clearInterval(chanPoll); chanPoll = null; }
+});
 $('#set-save').addEventListener('click', async () => {
   const k = $('#set-key').value.trim();
   if (k) await motion.setKey(k);

@@ -11,7 +11,7 @@ const { MeterShim } = require('./meter-shim');
 
 const SYSTEM_PROMPT =
   'You are Blitz, the user\'s AI Rolodex assistant, embedded in the Blitz desktop app by Benmore Technologies. ' +
-  'Use the motion MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
+  'Use the blitz MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
   'manage the follow-up queue (get_agenda, get_queue, queue_followup, start_sequence, due_sends, register_reply), ' +
   'and reach out (send_email, send_imessage — default to draft mode unless the user explicitly says send). ' +
   'This desktop app runs the send_imessage command automatically on the user\'s Mac when mode=send. ' +
@@ -154,7 +154,7 @@ let currentAbort = null;   // BYOK (AbortController)
 let currentChild = null;   // Claude Code (child process)
 
 function mcpConfig(cfg) {
-  return { motion: { type: 'http', url: baseUrl(cfg) + '/api/mcp', headers: { Authorization: 'Bearer ' + cfg.token } } };
+  return { blitz: { type: 'http', url: baseUrl(cfg) + '/api/mcp', headers: { Authorization: 'Bearer ' + cfg.token } } };
 }
 const sendToWin = (ev) => win && win.webContents.send('agent:event', ev);
 
@@ -203,7 +203,7 @@ async function agentSendSdk(cfg, prompt, platform) {
       includePartialMessages: true,
       systemPrompt: SYSTEM_PROMPT,
       mcpServers: mcpConfig(cfg),
-      allowedTools: ['mcp__motion__*'],
+      allowedTools: ['mcp__blitz__*'],
       disallowedTools: BUILTIN_TOOLS_OFF,
       maxTurns: 25,
     },
@@ -225,7 +225,7 @@ function agentSendClaudeCode(cfg, prompt) {
     '--output-format', 'stream-json', '--verbose',
     '--model', cfg.model || 'claude-opus-5',
     '--mcp-config', JSON.stringify({ mcpServers: mcpConfig(cfg) }),
-    '--allowedTools', 'mcp__motion__*',
+    '--allowedTools', 'mcp__blitz__*',
     '--disallowedTools', BUILTIN_TOOLS_OFF.join(','),
     '--append-system-prompt', SYSTEM_PROMPT,
   ];

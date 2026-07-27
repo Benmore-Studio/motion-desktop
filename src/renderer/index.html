@@ -59,6 +59,7 @@
           <button class="tab" data-tab="meetings">Meetings</button>
         </div>
         <input id="db-search" placeholder="Search everything…  ⌘K" autocomplete="off">
+        <button id="db-refresh" class="ghost" title="Refresh">⟳</button>
       </header>
       <div id="db-body" class="db-body"></div>
     </section>
@@ -69,6 +70,16 @@
     <div class="modal-card">
       <h3>Settings</h3>
       <div class="field"><label>Signed in as</label><div id="set-email" class="static"></div></div>
+      <div class="field">
+        <label>Connected accounts</label>
+        <div id="set-channels" class="chan-list"><span class="chan-empty">Loading…</span></div>
+        <div class="chan-actions">
+          <button class="ghost" data-conn="GOOGLE">✉️ Email</button>
+          <button class="ghost" data-conn="LINKEDIN">in LinkedIn</button>
+          <button class="ghost" data-conn="WHATSAPP">💬 WhatsApp</button>
+        </div>
+        <div id="set-chan-err" class="chan-err"></div>
+      </div>
       <div class="field"><label>Agent engine</label>
         <select id="set-engine">
           <option value="platform">Blitz credits (no key needed)</option>
