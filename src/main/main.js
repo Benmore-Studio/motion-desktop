@@ -7,6 +7,7 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
+const { MeterShim } = require('./meter-shim');
 
 const SYSTEM_PROMPT =
   'You are Blitz, the user\'s AI Rolodex assistant, embedded in the Blitz desktop app by Benmore Technologies. ' +
@@ -18,11 +19,12 @@ const SYSTEM_PROMPT =
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
 const DEFAULT_BASE = process.env.MOTION_URL || 'https://motion-v9t7fg.benmore.ai';
-// Platform AI ("Blitz credits"): the metering proxy in front of Anthropic.
-// Set via MOTION_PROXY_URL or `proxy` in userData/config.json; when present the
-// "Blitz credits" engine lights up and becomes the onboarding default.
-const DEFAULT_PROXY = process.env.MOTION_PROXY_URL || '';
-const proxyUrl = (cfg) => (cfg.proxy || DEFAULT_PROXY).replace(/\/$/, '');
+// Platform AI ("Blitz credits"): the blitz-meter Benmore app, fronted locally
+// by MeterShim (see meter-shim.js for why the shim is needed). Override with
+// BLITZ_METER_URL or `meter` in userData/config.json.
+const DEFAULT_METER = process.env.BLITZ_METER_URL || 'https://blitz-meter-v6fnp2.benmore.ai';
+const meterUrl = (cfg) => (cfg.meter || DEFAULT_METER).replace(/\/$/, '');
+const shim = new MeterShim();
 
 let win = null;
 
@@ -160,7 +162,12 @@ async function agentSend(prompt) {
   const engine = cfg.engine || 'byok';
   if (engine === 'claude-code') return agentSendClaudeCode(cfg, prompt);
   if (engine === 'platform') {
-    if (!proxyUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Blitz credits are almost live — switch engines in Settings for now.' });
+    if (!meterUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Blitz credits are unavailable — switch engines in Settings for now.' });
+    try {
+      await shim.start(() => ({ meterUrl: meterUrl(loadCfg()), token: loadCfg().token }));
+    } catch (e) {
+      return sendToWin({ kind: 'done', ok: false, error: 'Could not start the local Blitz bridge: ' + (e.message || e) });
+    }
     return agentSendSdk(cfg, prompt, true);
   }
   if (!cfg.anthropicKey) return sendToWin({ kind: 'done', ok: false, error: 'No API key set — add one in Settings.' });
@@ -179,8 +186,8 @@ async function agentSendSdk(cfg, prompt, platform) {
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_BASE_URL; delete env.ANTHROPIC_AUTH_TOKEN;
   if (platform) {
-    env.ANTHROPIC_BASE_URL = proxyUrl(cfg);
-    env.ANTHROPIC_AUTH_TOKEN = cfg.token;
+    env.ANTHROPIC_BASE_URL = shim.baseUrl;
+    env.ANTHROPIC_AUTH_TOKEN = shim.authToken;
   } else {
     env.ANTHROPIC_API_KEY = cfg.anthropicKey;
   }
@@ -286,7 +293,7 @@ function registerIpc() {
       base: baseUrl(c), email: c.email || '', loggedIn: !!c.token,
       hasKey: !!c.anthropicKey, model: c.model || 'claude-opus-5',
       engine: c.engine || '', onboarded: !!c.onboarded,
-      platformReady: !!proxyUrl(c),
+      platformReady: !!meterUrl(c),
     };
   });
   ipcMain.handle('cfg:setKey', (_e, key) => { const c = loadCfg(); c.anthropicKey = String(key || '').trim(); saveCfg(c); return true; });
@@ -350,5 +357,6 @@ app.whenReady().then(() => {
   }
   registerIpc(); createWindow();
 });
+app.on('before-quit', () => shim.stop());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
