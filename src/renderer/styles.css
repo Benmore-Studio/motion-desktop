@@ -22,7 +22,15 @@ body {
   -webkit-font-smoothing: antialiased; overflow: hidden;
 }
 h1, h2, h3, .brand { font-family: var(--font-head); }
-#drag { position: fixed; top: 0; left: 0; right: 0; height: 38px; -webkit-app-region: drag; z-index: 5; pointer-events: none; }
+/* Window dragging. An overlay strip across the top CANNOT be used: Electron
+   handles -webkit-app-region above hit-testing, so a drag layer swallows every
+   click under it (even with pointer-events:none) — which made the header
+   buttons unclickable wherever their glyphs fell inside it. Instead the header
+   itself is the drag handle and every control in it opts back out. */
+#drag { display: none; }
+.pane-head { -webkit-app-region: drag; }
+.pane-head button, .pane-head input, .pane-head select, .pane-head a,
+.pane-head .tabs, .pane-head .badge { -webkit-app-region: no-drag; }
 
 /* ---------- brand ---------- */
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
