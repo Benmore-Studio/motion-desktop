@@ -195,6 +195,63 @@ function startBridgePoll() {
 }
 function stopBridgePoll() { if (bridgePoll) { clearInterval(bridgePoll); bridgePoll = null; } }
 
+
+// ---------------- markdown ----------------
+// The agent and every MCP tool return markdown. A CDN parser is impossible here
+// (CSP is default-src 'self'), so this is a small renderer that escapes FIRST
+// and only then introduces tags — no user text can ever become markup.
+function md(src) {
+  const esc0 = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const text = String(src ?? '').replace(/\r\n/g, '\n');
+
+  // Pull fenced code out first so its contents are never marked up.
+  const fences = [];
+  let s = esc0(text).replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, lang, body) => {
+    fences.push('<pre class="md-pre"><code>' + body.replace(/\n$/, '') + '</code></pre>');
+    return '\u0000FENCE' + (fences.length - 1) + '\u0000';
+  });
+
+  const inline = (x) => x
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>')
+    // Links: href is already escaped; only http(s) is allowed through.
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  const out = [];
+  let list = null;                       // 'ul' | 'ol' | null
+  const closeList = () => { if (list) { out.push('</' + list + '>'); list = null; } };
+
+  for (const raw of s.split('\n')) {
+    const line = raw.trimEnd();
+    if (/^\u0000FENCE\d+\u0000$/.test(line.trim())) { closeList(); out.push(line.trim()); continue; }
+    if (!line.trim()) { closeList(); continue; }
+
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { closeList(); out.push('<div class="md-h' + h[1].length + '">' + inline(h[2]) + '</div>'); continue; }
+
+    if (/^\s*([-*+]|&gt;?)\s+/.test(line) && /^\s*[-*+]\s+/.test(line)) {
+      if (list !== 'ul') { closeList(); out.push('<ul class="md-ul">'); list = 'ul'; }
+      out.push('<li>' + inline(line.replace(/^\s*[-*+]\s+/, '')) + '</li>');
+      continue;
+    }
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) {
+      if (list !== 'ol') { closeList(); out.push('<ol class="md-ol">'); list = 'ol'; }
+      out.push('<li>' + inline(ol[1]) + '</li>');
+      continue;
+    }
+    if (/^&gt;\s?/.test(line)) { closeList(); out.push('<blockquote>' + inline(line.replace(/^&gt;\s?/, '')) + '</blockquote>'); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(line.trim())) { closeList(); out.push('<hr>'); continue; }
+
+    closeList();
+    out.push('<p>' + inline(line) + '</p>');
+  }
+  closeList();
+  return out.join('').replace(/\u0000FENCE(\d+)\u0000/g, (_m, i) => fences[Number(i)]);
+}
+
 // ================= app =================
 function engineLabel() {
   if (cfg.engine === 'platform') return 'Blitz credits';
@@ -288,10 +345,18 @@ function ensureBotBubble() {
   clearHello();
   const wrap = document.createElement('div');
   wrap.className = 'msg bot';
-  wrap.innerHTML = '<div class="bubble"></div>';
+  wrap.innerHTML = '<div class="bubble md"></div>';
   threadEl().appendChild(wrap);
   botBubble = wrap.querySelector('.bubble');
+  botBubble._raw = '';
   return botBubble;
+}
+// Streamed deltas are markdown fragments, so keep the raw text and re-render
+// the whole bubble each chunk — half a bold marker can't be parsed alone.
+function appendBotText(chunk) {
+  const b = ensureBotBubble();
+  b._raw = (b._raw || '') + chunk;
+  b.innerHTML = md(b._raw);
 }
 function addActionCard(name, input) {
   clearHello();
@@ -303,10 +368,11 @@ function addActionCard(name, input) {
   scrollThread();
 }
 function addResultCard(text) {
-  const short = esc(String(text || '').trim()).slice(0, 400);
-  if (!short) return;
+  const raw = String(text || '').trim();
+  if (!raw) return;
+  const clipped = raw.length > 1200 ? raw.slice(0, 1200) + '\n\n…' : raw;
   threadEl().insertAdjacentHTML('beforeend',
-    `<div class="action-card result"><span class="ic">✓</span><div class="detail">${short}</div></div>`);
+    `<div class="action-card result"><span class="ic">✓</span><div class="detail md">${md(clipped)}</div></div>`);
   scrollThread();
 }
 function setThinking(on) {
@@ -321,11 +387,11 @@ function setThinking(on) {
 motion.onAgent((ev) => {
   if (ev.kind === 'text') {
     setThinking(false);
-    ensureBotBubble().textContent += ev.text;
+    appendBotText(ev.text);
     scrollThread();
   } else if (ev.kind === 'text_full') {
     setThinking(false);
-    ensureBotBubble().textContent += ev.text;
+    appendBotText(ev.text);
     botBubble = null;
     scrollThread();
   } else if (ev.kind === 'imessage_sent') {

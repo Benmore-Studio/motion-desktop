@@ -228,3 +228,32 @@ input:focus, textarea:focus, select:focus { border-color: rgba(92,139,255,.6); b
 .chan-err { color: var(--red); font-size: 12px; margin-top: 6px; }
 #db-refresh.spin { animation: spin .35s linear; }
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* ---------- rendered markdown (chat bubbles + tool results) ---------- */
+.md p { margin: 0 0 .5em; }
+.md p:last-child, .md > :last-child { margin-bottom: 0; }
+.md .md-h1, .md .md-h2, .md .md-h3, .md .md-h4 {
+  font-family: var(--font-head); font-weight: 600; color: var(--tx);
+  margin: .6em 0 .3em; line-height: 1.3; }
+.md .md-h1 { font-size: 15px; }
+.md .md-h2 { font-size: 14px; }
+.md .md-h3, .md .md-h4 { font-size: 13px; color: var(--tx2); }
+.md > .md-h1:first-child, .md > .md-h2:first-child, .md > .md-h3:first-child { margin-top: 0; }
+.md ul.md-ul, .md ol.md-ol { margin: .25em 0 .5em; padding-left: 1.25em; }
+.md ul.md-ul { list-style: disc; }
+.md ol.md-ol { list-style: decimal; }
+.md li { margin: .15em 0; }
+.md strong { color: var(--tx); font-weight: 600; }
+.md em { font-style: italic; }
+.md code { background: rgba(240,58,74,.12); border: 1px solid rgba(240,58,74,.18);
+  border-radius: 4px; padding: .05em .35em; font-size: 12px; }
+.md pre.md-pre { background: var(--bg-deep); border: 1px solid var(--border-soft);
+  border-radius: 8px; padding: .6em .75em; overflow-x: auto; margin: .5em 0; }
+.md pre.md-pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.5; }
+.md blockquote { border-left: 2px solid var(--accent); padding-left: .7em; margin: .4em 0; color: var(--tx2); }
+.md a { color: var(--accent-hi); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md hr { border: none; border-top: 1px solid var(--border-soft); margin: .6em 0; }
+/* Rendered markdown supplies its own block spacing — drop the raw-text mode. */
+.msg.bot .bubble.md { white-space: normal; }
+.action-card .detail.md { white-space: normal; }

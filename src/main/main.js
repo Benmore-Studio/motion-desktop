@@ -14,7 +14,10 @@ const SYSTEM_PROMPT =
   'Use the blitz MCP tools for everything: log context (add_context), look people up (search, list_targets, get_brief), ' +
   'manage the follow-up queue (get_agenda, get_queue, queue_followup, start_sequence, due_sends, register_reply), ' +
   'and reach out (send_email, send_imessage — default to draft mode unless the user explicitly says send). ' +
-  'This desktop app runs the send_imessage command automatically on the user\'s Mac when mode=send. ' +
+  'IMPORTANT: when send_imessage returns an osascript block, THIS DESKTOP APP EXECUTES IT AUTOMATICALLY on ' +
+  'the user\'s Mac. You have no shell and you do not need one — never try to run it, never ask the user to ' +
+  'paste it into Terminal, and never say the send failed because you lack a Bash tool. Just confirm it sent. ' +
+  'To send WhatsApp use send_whatsapp (queue_followup only schedules a reminder, it sends nothing). ' +
   'Be concise. After acting, summarize what you did in one or two sentences.';
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
