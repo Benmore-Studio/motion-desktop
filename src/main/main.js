@@ -18,7 +18,9 @@ const SYSTEM_PROMPT =
   'Be concise. After acting, summarize what you did in one or two sentences.';
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
-const DEFAULT_BASE = process.env.MOTION_URL || 'https://motion-v9t7fg.benmore.ai';
+// Canonical host for new installs; a saved cfg.base still wins, so existing
+// sign-ins on the old motion-v9t7fg URL keep working (same app, same data).
+const DEFAULT_BASE = process.env.BLITZ_URL || process.env.MOTION_URL || 'https://www.getblitz.app';
 // Platform AI ("Blitz credits"): the blitz-meter Benmore app, fronted locally
 // by MeterShim (see meter-shim.js for why the shim is needed). Override with
 // BLITZ_METER_URL or `meter` in userData/config.json.
