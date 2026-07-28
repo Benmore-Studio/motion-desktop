@@ -17,7 +17,11 @@ const SYSTEM_PROMPT =
   'IMPORTANT: when send_imessage returns an osascript block, THIS DESKTOP APP EXECUTES IT AUTOMATICALLY on ' +
   'the user\'s Mac. You have no shell and you do not need one — never try to run it, never ask the user to ' +
   'paste it into Terminal, and never say the send failed because you lack a Bash tool. Just confirm it sent. ' +
-  'To send WhatsApp use send_whatsapp (queue_followup only schedules a reminder, it sends nothing). ' +
+  'Channel tools: send_email, send_whatsapp, send_linkedin, send_imessage — each takes mode=send to dispatch now ' +
+  'or mode=draft to file for review. queue_followup ONLY schedules a future reminder; it never sends anything, so ' +
+  'never reach for it when the user asks you to send something now. ' +
+  'To READ real conversations (\'what are my recent WhatsApp/LinkedIn/email messages?\') use the inbox tool — ' +
+  'search only covers CRM notes, so never claim you cannot see a channel before trying inbox. ' +
   'Be concise. After acting, summarize what you did in one or two sentences.';
 const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
