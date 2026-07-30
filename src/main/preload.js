@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('motion', {
   setEngine: (e) => ipcRenderer.invoke('cfg:setEngine', e),
   setOnboarded: () => ipcRenderer.invoke('cfg:setOnboarded'),
   imessageCheck: () => ipcRenderer.invoke('imessage:check'),
+  imessageInbox: (n) => ipcRenderer.invoke('imessage:inbox', n),
+  imessageGrant: () => ipcRenderer.invoke('imessage:grant'),
   openUrl: (u) => ipcRenderer.invoke('open:url', u),
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),

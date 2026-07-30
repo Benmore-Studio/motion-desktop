@@ -8,6 +8,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { MeterShim } = require('./meter-shim');
+const imessage = require('./imessage');
 
 const SYSTEM_PROMPT =
   'You are Blitz, the user\'s AI Rolodex assistant, embedded in the Blitz desktop app by Benmore Technologies. ' +
@@ -313,6 +314,12 @@ function registerIpc() {
   ipcMain.handle('auth:logout', () => { const c = loadCfg(); delete c.token; delete c.email; delete c.onboarded; saveCfg(c); sessionId = null; return true; });
   ipcMain.handle('engine:detect', async () => ({ claudeCode: await detectClaudeCode() }));
   ipcMain.handle('imessage:check', () => imessageCheck());
+  ipcMain.handle('imessage:inbox', (_e, limit) => imessage.inbox(Number(limit) || 200));
+  // Deep-link straight to the Full Disk Access pane; only the user can grant it.
+  ipcMain.handle('imessage:grant', () => {
+    shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+    return true;
+  });
   ipcMain.handle('open:url', (_e, u) => { if (/^https?:\/\//.test(String(u))) shell.openExternal(String(u)); return true; });
   ipcMain.handle('agent:send', (_e, prompt) => { agentSend(String(prompt || '')); return true; });
   ipcMain.handle('agent:stop', () => {

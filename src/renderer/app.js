@@ -482,7 +482,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 // Each channel is a separate Unipile call, so they're fetched in parallel and
 // merged client-side, newest first. Rows resolved to a contact deep-link to the
 // dossier; unresolved ones are flagged as leads not yet in the Rolodex.
-const CH_GLYPH = { email: '\u2709\uFE0F', whatsapp: '\uD83D\uDCAC', linkedin: 'in' };
+const CH_GLYPH = { email: '\u2709\uFE0F', whatsapp: '\uD83D\uDCAC', linkedin: 'in', imessage: '\uD83D\uDCF1' };
 let inboxFilter = 'all';
 let inboxCache = [];
 
@@ -509,21 +509,33 @@ async function loadInbox(soft) {
     el.innerHTML = '<div class="empty">Loading your inboxes…</div>';
   }
 
+  await buildChannelIndex().catch(() => {});
   const { status, body } = await motion.get('/api/channel_accounts');
   if (stale()) { inboxLoading = false; return; }
   const rows = status === 200 ? (Array.isArray(body) ? body : (body.rows || [])) : [];
   const chans = [...new Set(rows.filter((r) => r.status === 'connected').map((r) =>
     r.provider === 'LINKEDIN' ? 'linkedin' : r.provider === 'WHATSAPP' ? 'whatsapp' : 'email'))];
 
-  if (!chans.length) {
-    inboxLoading = false;
-    el.innerHTML = '<div class="empty">No channels connected yet.<br>Add one in Settings → Connected accounts.</div>';
-    return;
-  }
+
 
   const acc = [];
   let done = 0;
-  await Promise.all(chans.map((ch) => motion.get('/api/inbox?channel=' + ch + '&limit=30')
+  const total = chans.length + 1;   // +1 for the local iMessage read
+
+  // iMessage is read from the Mac itself, not Unipile — merged in as a peer.
+  const imsg = motion.imessageInbox(300).then((r) => {
+    done++;
+    if (stale()) return;
+    imessageNeedsAccess = !!(r && r.needsAccess);
+    if (r && r.ok && Array.isArray(r.messages)) {
+      for (const m of r.messages) acc.push({ ...m, channel: 'imessage' });
+    }
+    acc.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    inboxCache = resolveLocal(acc.slice());
+    renderInbox(done < total ? total - done : 0);
+  }).catch(() => { done++; });
+
+  await Promise.all([imsg].concat(chans.map((ch) => motion.get('/api/inbox?channel=' + ch + '&limit=30')
     .catch(() => null)
     .then((r) => {
       done++;
@@ -532,13 +544,45 @@ async function loadInbox(soft) {
         for (const m of r.body.messages) acc.push({ ...m, channel: ch });
       }
       acc.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
-      inboxCache = acc.slice();
-      renderInbox(done < chans.length ? chans.length - done : 0);
-    })));
+      inboxCache = resolveLocal(acc.slice());
+      renderInbox(done < total ? total - done : 0);
+    }))));
   inboxLoading = false;
   inboxLoadedAt = Date.now();
 }
 
+
+
+let imessageNeedsAccess = false;
+let channelIndex = null;   // norm -> target_id, built from contact_channels
+
+async function buildChannelIndex() {
+  const { status, body } = await motion.get('/api/contact_channels?per_page=500');
+  const idx = new Map();
+  if (status === 200) {
+    const rows = Array.isArray(body) ? body : (body.rows || []);
+    for (const r of rows) if (r.norm) idx.set(String(r.norm).toLowerCase(), r.target_id);
+  }
+  for (const c of contacts) {
+    if (c.phone) idx.set(normCh('phone', c.phone), c.id);
+    if (c.email) idx.set(normCh('email', c.email), c.id);
+  }
+  channelIndex = idx;
+  return idx;
+}
+
+// iMessage rows are resolved on this side (they never touch the server), using
+// the same normalisation the backend matches on.
+function resolveLocal(list) {
+  if (!channelIndex) return list;
+  for (const m of list) {
+    if (m.target_id || !m.handle) continue;
+    const k = /@/.test(m.handle) ? normCh('email', m.handle) : normCh('phone', m.handle);
+    const hit = channelIndex.get(k);
+    if (hit) m.target_id = hit;
+  }
+  return list;
+}
 
 // Collapse the raw message feed into conversations. A chat with one person (or
 // one group) is ONE row showing its latest message — like Messages — and you
@@ -572,7 +616,9 @@ function conversations(list) {
     c.title = c.is_group
       ? (c.group_name || 'Group chat')
       : ([...c.names][0] || c.last.who
-         || (c.channel === 'linkedin' ? 'LinkedIn contact' : c.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'));
+         || (c.channel === 'linkedin' ? 'LinkedIn contact'
+             : c.channel === 'whatsapp' ? 'WhatsApp contact'
+             : c.channel === 'imessage' ? (c.last.handle || 'iMessage') : 'Unknown sender'));
     out.push(c);
   }
   out.sort((a, b) => String(b.last.at || '').localeCompare(String(a.last.at || '')));
@@ -621,14 +667,21 @@ function renderInbox(pending) {
   delete el.dataset.thread;
   const all = conversations(inboxCache);
   const list = inboxFilter === 'all' ? all : all.filter((c) => c.channel === inboxFilter);
-  const chips = ['all', 'email', 'whatsapp', 'linkedin'].map((c) =>
+  const chips = ['all', 'email', 'whatsapp', 'imessage', 'linkedin'].map((c) =>
     `<button class="ib-chip ${c === inboxFilter ? 'on' : ''}" data-ibf="${c}">${
-      c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + c.charAt(0).toUpperCase() + c.slice(1)}</button>`).join('');
+      c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + (c === 'imessage' ? 'iMessage' : c.charAt(0).toUpperCase() + c.slice(1))}</button>`).join('');
 
   const named = (c) => !!(c.title && !/^(Unknown sender|LinkedIn contact|WhatsApp contact)$/.test(c.title));
   const unmatched = list.filter((c) => !c.target_id && !c.is_group && named(c)).length;
 
   el.innerHTML = `<div class="ib-filters">${chips}</div>` +
+    (imessageNeedsAccess ? `<div class="entry" style="padding:11px;margin-bottom:8px">
+       <b style="font-size:13px">iMessage isn't readable yet</b>
+       <div style="font-size:12.5px;color:var(--tx2);margin:4px 0 8px">
+         macOS keeps your Messages history behind Full Disk Access. Grant it to Blitz,
+         then quit and reopen the app and your texts appear here with everything else.</div>
+       <button id="ib-grant" class="primary" style="padding:6px 12px">Open Full Disk Access…</button>
+     </div>` : '') +
     (pending ? `<div class="section-h">Loading ${pending} more channel(s)…</div>` : '') +
     (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} conversation(s) not linked to a contact</div>` : '') +
     (list.length ? list.map((c) => `
@@ -644,6 +697,7 @@ function renderInbox(pending) {
         <span class="when">${rel(c.last.at)}</span>
       </button>`).join('') : '<div class="empty">Nothing here yet.</div>');
 
+  $('#ib-grant')?.addEventListener('click', () => motion.imessageGrant());
   el.querySelectorAll('[data-ibf]').forEach((b) => b.addEventListener('click', () => {
     inboxFilter = b.dataset.ibf; renderInbox();
   }));
