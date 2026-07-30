@@ -278,3 +278,5 @@ input:focus, textarea:focus, select:focus { border-color: rgba(92,139,255,.6); b
 .ib-row .newlead { font-size: 10.5px; color: var(--amber, #f2c94c); border: 1px solid rgba(242,201,76,.3);
   border-radius: 999px; padding: 0 6px; margin-left: 6px; }
 .ib-row.unmatched { opacity: .92; }
+.ib-row .grp { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent-hi); border: 1px solid rgba(255,92,106,.3); border-radius: 999px; padding: 0 6px; }

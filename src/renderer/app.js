@@ -486,35 +486,60 @@ const CH_GLYPH = { email: '\u2709\uFE0F', whatsapp: '\uD83D\uDCAC', linkedin: 'i
 let inboxFilter = 'all';
 let inboxCache = [];
 
+// Each channel is a separate multi-call round trip to Unipile, so this is slow
+// by nature. Two things matter: never let a late response overwrite whatever
+// the user navigated to (that was "it kicks me out after a bit"), and paint
+// each channel the moment it lands rather than waiting for the slowest.
+let inboxGen = 0;
+let inboxLoading = false;
+let inboxLoadedAt = 0;
+const INBOX_MIN_AGE_MS = 45000;   // Unipile round trips are slow; don't refetch on the 7s tick
 async function loadInbox(soft) {
   const el = $('#db-body');
   if (soft && (el.dataset.detail || el.dataset.thread)) return;
-  if (!soft) { delete el.dataset.detail; el.innerHTML = '<div class="empty">Loading your inboxes…</div>'; }
+  // A load takes longer than the poll interval, so an unguarded poll kept
+  // superseding the in-flight request and the list never rendered at all.
+  if (soft && (inboxLoading || Date.now() - inboxLoadedAt < INBOX_MIN_AGE_MS)) return;
+  const gen = ++inboxGen;
+  inboxLoading = true;
+  const stale = () => gen !== inboxGen || currentTab !== 'inbox' || !!$('#db-body').dataset.detail;
+
+  if (!soft) {
+    delete el.dataset.detail;
+    el.innerHTML = '<div class="empty">Loading your inboxes…</div>';
+  }
 
   const { status, body } = await motion.get('/api/channel_accounts');
+  if (stale()) { inboxLoading = false; return; }
   const rows = status === 200 ? (Array.isArray(body) ? body : (body.rows || [])) : [];
   const chans = [...new Set(rows.filter((r) => r.status === 'connected').map((r) =>
     r.provider === 'LINKEDIN' ? 'linkedin' : r.provider === 'WHATSAPP' ? 'whatsapp' : 'email'))];
 
   if (!chans.length) {
+    inboxLoading = false;
     el.innerHTML = '<div class="empty">No channels connected yet.<br>Add one in Settings → Connected accounts.</div>';
     return;
   }
 
-  const results = await Promise.all(chans.map((ch) =>
-    motion.get('/api/inbox?channel=' + ch + '&limit=30').then((r) => ({ ch, r })).catch(() => ({ ch, r: null }))));
-
-  const merged = [];
-  for (const { ch, r } of results) {
-    if (!r || r.status !== 200 || !r.body || !Array.isArray(r.body.messages)) continue;
-    for (const m of r.body.messages) merged.push({ ...m, channel: ch });
-  }
-  merged.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
-  inboxCache = merged;
-  renderInbox();
+  const acc = [];
+  let done = 0;
+  await Promise.all(chans.map((ch) => motion.get('/api/inbox?channel=' + ch + '&limit=30')
+    .catch(() => null)
+    .then((r) => {
+      done++;
+      if (stale()) return;
+      if (r && r.status === 200 && r.body && Array.isArray(r.body.messages)) {
+        for (const m of r.body.messages) acc.push({ ...m, channel: ch });
+      }
+      acc.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+      inboxCache = acc.slice();
+      renderInbox(done < chans.length ? chans.length - done : 0);
+    })));
+  inboxLoading = false;
+  inboxLoadedAt = Date.now();
 }
 
-function renderInbox() {
+function renderInbox(pending) {
   const el = $('#db-body');
   delete el.dataset.detail;
   const list = inboxFilter === 'all' ? inboxCache : inboxCache.filter((m) => m.channel === inboxFilter);
@@ -523,18 +548,22 @@ function renderInbox() {
       c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + c.charAt(0).toUpperCase() + c.slice(1)}</button>`).join('');
 
   const named = (m) => !!(m.who && m.who !== 'Unknown');
-  const unmatched = list.filter((m) => m.direction === 'in' && !m.target_id && named(m)).length;
+  const unmatched = list.filter((m) => m.direction === 'in' && !m.target_id && named(m) && !m.is_group).length;
 
   el.innerHTML = `<div class="ib-filters">${chips}</div>` +
+    (pending ? `<div class="section-h">Loading ${pending} more channel(s)…</div>` : '') +
     (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} sender(s) not in your Rolodex</div>` : '') +
     (list.length ? list.map((m, i) => `
       <button class="ib-row ${m.target_id ? '' : 'unmatched'}" data-ibi="${i}" data-tgt="${m.target_id || 0}">
         <span class="ch ${m.channel === 'linkedin' ? 'li' : ''}">${CH_GLYPH[m.channel] || '\u2691'}</span>
         <span class="mid">
-          <span class="who">${esc(m.who || (m.channel === 'linkedin' ? 'LinkedIn contact'
-            : m.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'))}${
+          <span class="who">${m.is_group
+              ? '<span class="grp">group</span> ' + esc(m.group_name || 'Group chat')
+              : esc(m.who || (m.channel === 'linkedin' ? 'LinkedIn contact'
+                  : m.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'))}${
             m.direction === 'out' ? '<span class="dirn">you sent</span>'
-              : (m.target_id || !named(m) ? '' : '<span class="newlead">new lead</span>')}</span>
+              : (m.is_group ? '<span class="dirn">' + esc(m.who || 'someone') + '</span>'
+                 : (m.target_id || !named(m) ? '' : '<span class="newlead">new lead</span>'))}</span>
           <span class="snip">${esc(m.subject ? m.subject + ' — ' + (m.text || '') : (m.text || '(no text)'))}</span>
         </span>
         <span class="when">${rel(m.at)}</span>
@@ -546,7 +575,9 @@ function renderInbox() {
   el.querySelectorAll('[data-ibi]').forEach((b) => b.addEventListener('click', () => {
     const tgt = Number(b.dataset.tgt);
     if (tgt) { openBrief(tgt); return; }
-    openAssign(inboxCache[Number(b.dataset.ibi)]);
+    const m = inboxCache[Number(b.dataset.ibi)];
+    if (m && m.is_group) return;   // a group maps to many people, not one contact
+    openAssign(m);
   }));
 }
 
@@ -851,7 +882,7 @@ async function openBrief(id) {
   const ctx = body.context || [];
   const fus = (body.follow_ups || []).filter((f) => f.status === 'open' || f.status === 'queued');
   el.innerHTML = `
-    <a class="back" href="#">← All contacts</a>
+    <a class="back" href="#">← ${currentTab === 'inbox' ? 'Inbox' : currentTab === 'queue' ? 'Queue' : 'All contacts'}</a>
     <div class="detail-head">
       <h2>${esc(t.name)}</h2>
       <div class="meta">${esc([t.title, t.company].filter(Boolean).join(' · '))}</div>
@@ -872,7 +903,14 @@ async function openBrief(id) {
         <div class="eh"><span class="kind">${esc(e.kind)}</span><span>${rel(e.occurred_at)} ago</span><span>· ${esc(e.source || '')}</span></div>
         <div class="body">${esc(e.content)}</div>
       </div>`).join('') : '<div class="empty">No context yet.</div>'}`;
-  el.querySelector('.back').addEventListener('click', (e) => { e.preventDefault(); renderContacts(); });
+  el.querySelector('.back').addEventListener('click', (e) => {
+    e.preventDefault();
+    delete el.dataset.detail;
+    // Go back where they actually came from, not always to Contacts.
+    if (currentTab === 'inbox') renderInbox();
+    else if (currentTab === 'queue') loadQueue(false);
+    else renderContacts();
+  });
   loadChannelsFor(id).then((rows) => {
     const host = $('#cc-host');
     if (!host) return;
