@@ -584,6 +584,30 @@ function resolveLocal(list) {
   return list;
 }
 
+
+// Unipile's bulk attendee directory is capped and unordered, so many 1:1
+// threads come back unnamed. Ask per-conversation for just those — cheap now
+// that the feed is grouped — and fire them in parallel.
+const chatPeople = new Map();   // channel:chat_id -> {name, target_id}
+const UNNAMED = /^(LinkedIn contact|WhatsApp contact|Unknown sender)$/;
+
+async function fillMissingNames(convs) {
+  const need = convs.filter((c) => !c.is_group && c.chat_id_raw && UNNAMED.test(c.title)
+                                   && !chatPeople.has(c.key)).slice(0, 14);
+  if (!need.length) return false;
+  const got = await Promise.all(need.map((c) =>
+    motion.get('/api/chat-people?channel=' + c.channel + '&chat_id=' + encodeURIComponent(c.chat_id_raw))
+      .then((r) => ({ c, p: (r.status === 200 && r.body && r.body.people) || [] }))
+      .catch(() => ({ c, p: [] }))));
+  let changed = false;
+  for (const { c, p } of got) {
+    if (!p.length) { chatPeople.set(c.key, null); continue; }
+    chatPeople.set(c.key, { name: p[0].name || '', target_id: p[0].target_id || 0 });
+    changed = true;
+  }
+  return changed;
+}
+
 // Collapse the raw message feed into conversations. A chat with one person (or
 // one group) is ONE row showing its latest message — like Messages — and you
 // click in to read the thread. Email threads group by thread id when the
@@ -601,7 +625,7 @@ function conversations(list) {
     let c = byKey.get(k);
     if (!c) {
       c = { key: k, channel: m.channel, is_group: !!m.is_group, group_name: m.group_name || '',
-            target_id: 0, msgs: [], names: new Set() };
+            chat_id_raw: m.chat_id || '', target_id: 0, msgs: [], names: new Set() };
       byKey.set(k, c);
     }
     c.msgs.push(m);
@@ -613,9 +637,11 @@ function conversations(list) {
   for (const c of byKey.values()) {
     c.msgs.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
     c.last = c.msgs[c.msgs.length - 1];
+    const looked = chatPeople.get(c.key);
+    if (looked && looked.target_id && !c.target_id) c.target_id = looked.target_id;
     c.title = c.is_group
       ? (c.group_name || 'Group chat')
-      : ([...c.names][0] || c.last.who
+      : ((looked && looked.name) || [...c.names][0] || c.last.who
          || (c.channel === 'linkedin' ? 'LinkedIn contact'
              : c.channel === 'whatsapp' ? 'WhatsApp contact'
              : c.channel === 'imessage' ? (c.last.handle || 'iMessage') : 'Unknown sender'));
@@ -702,6 +728,13 @@ function renderInbox(pending) {
     inboxFilter = b.dataset.ibf; renderInbox();
   }));
   el.querySelectorAll('[data-ibk]').forEach((b) => b.addEventListener('click', () => openThread(b.dataset.ibk)));
+
+  if (!pending) {
+    fillMissingNames(all).then((changed) => {
+      // only repaint if we're still looking at the list
+      if (changed && currentTab === 'inbox' && !$('#db-body').dataset.detail) renderInbox();
+    });
+  }
 }
 
 // An unmatched sender is the interesting case: either they're already a contact
