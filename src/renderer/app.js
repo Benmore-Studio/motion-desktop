@@ -539,48 +539,116 @@ async function loadInbox(soft) {
   inboxLoadedAt = Date.now();
 }
 
+
+// Collapse the raw message feed into conversations. A chat with one person (or
+// one group) is ONE row showing its latest message — like Messages — and you
+// click in to read the thread. Email threads group by thread id when the
+// provider gives one, else by the counterpart's address.
+function convKey(m) {
+  if (m.chat_id) return m.channel + ':' + m.chat_id;
+  if (m.handle) return m.channel + ':h:' + String(m.handle).toLowerCase();
+  return m.channel + ':who:' + String(m.who || '?').toLowerCase();
+}
+
+function conversations(list) {
+  const byKey = new Map();
+  for (const m of list) {
+    const k = convKey(m);
+    let c = byKey.get(k);
+    if (!c) {
+      c = { key: k, channel: m.channel, is_group: !!m.is_group, group_name: m.group_name || '',
+            target_id: 0, msgs: [], names: new Set() };
+      byKey.set(k, c);
+    }
+    c.msgs.push(m);
+    if (m.target_id) c.target_id = m.target_id;
+    if (m.direction === 'in' && m.who) c.names.add(m.who);
+    if (m.is_group) { c.is_group = true; if (m.group_name) c.group_name = m.group_name; }
+  }
+  const out = [];
+  for (const c of byKey.values()) {
+    c.msgs.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+    c.last = c.msgs[c.msgs.length - 1];
+    c.title = c.is_group
+      ? (c.group_name || 'Group chat')
+      : ([...c.names][0] || c.last.who
+         || (c.channel === 'linkedin' ? 'LinkedIn contact' : c.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'));
+    out.push(c);
+  }
+  out.sort((a, b) => String(b.last.at || '').localeCompare(String(a.last.at || '')));
+  return out;
+}
+
+function openThread(key) {
+  const el = $('#db-body');
+  const c = conversations(inboxCache).find((x) => x.key === key);
+  if (!c) return;
+  el.dataset.detail = '1';
+  el.dataset.thread = key;
+  const bubbles = c.msgs.map((m) => `
+    <div class="th-msg ${m.direction === 'out' ? 'out' : 'in'}">
+      ${c.is_group && m.direction === 'in' ? `<div class="th-from">${esc(m.who || 'someone')}</div>` : ''}
+      <div class="th-bubble">${esc(m.subject ? m.subject + '\n' : '')}${esc(m.text || '(no text)')}</div>
+      <div class="th-at">${rel(m.at)}</div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <a class="back" href="#">← Inbox</a>
+    <div class="detail-head">
+      <h2>${esc(c.title)}</h2>
+      <div class="meta">
+        ${c.is_group ? 'Group · ' : ''}${esc(c.channel)} · ${c.msgs.length} message${c.msgs.length === 1 ? '' : 's'}
+      </div>
+      <div style="margin-top:7px">
+        ${c.target_id ? `<button class="ghost" id="th-contact">Open contact →</button>`
+          : (!c.is_group ? `<button class="ghost" id="th-assign">Who is this? Assign →</button>` : '')}
+      </div>
+    </div>
+    <div class="th-wrap">${bubbles}</div>`;
+
+  el.querySelector('.back').addEventListener('click', (e) => {
+    e.preventDefault(); delete el.dataset.detail; delete el.dataset.thread; renderInbox();
+  });
+  $('#th-contact')?.addEventListener('click', () => { delete el.dataset.thread; openBrief(c.target_id); });
+  $('#th-assign')?.addEventListener('click', () => { delete el.dataset.thread; openAssign(c.last); });
+  const w = el.querySelector('.th-wrap');
+  if (w) w.scrollTop = w.scrollHeight;
+}
+
 function renderInbox(pending) {
   const el = $('#db-body');
   delete el.dataset.detail;
-  const list = inboxFilter === 'all' ? inboxCache : inboxCache.filter((m) => m.channel === inboxFilter);
+  delete el.dataset.thread;
+  const all = conversations(inboxCache);
+  const list = inboxFilter === 'all' ? all : all.filter((c) => c.channel === inboxFilter);
   const chips = ['all', 'email', 'whatsapp', 'linkedin'].map((c) =>
     `<button class="ib-chip ${c === inboxFilter ? 'on' : ''}" data-ibf="${c}">${
       c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + c.charAt(0).toUpperCase() + c.slice(1)}</button>`).join('');
 
-  const named = (m) => !!(m.who && m.who !== 'Unknown');
-  const unmatched = list.filter((m) => m.direction === 'in' && !m.target_id && named(m) && !m.is_group).length;
+  const named = (c) => !!(c.title && !/^(Unknown sender|LinkedIn contact|WhatsApp contact)$/.test(c.title));
+  const unmatched = list.filter((c) => !c.target_id && !c.is_group && named(c)).length;
 
   el.innerHTML = `<div class="ib-filters">${chips}</div>` +
     (pending ? `<div class="section-h">Loading ${pending} more channel(s)…</div>` : '') +
-    (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} sender(s) not in your Rolodex</div>` : '') +
-    (list.length ? list.map((m, i) => `
-      <button class="ib-row ${m.target_id ? '' : 'unmatched'}" data-ibi="${i}" data-tgt="${m.target_id || 0}">
-        <span class="ch ${m.channel === 'linkedin' ? 'li' : ''}">${CH_GLYPH[m.channel] || '\u2691'}</span>
+    (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} conversation(s) not linked to a contact</div>` : '') +
+    (list.length ? list.map((c) => `
+      <button class="ib-row ${c.target_id ? '' : 'unmatched'}" data-ibk="${esc(c.key)}">
+        <span class="ch ${c.channel === 'linkedin' ? 'li' : ''}">${CH_GLYPH[c.channel] || '\u2691'}</span>
         <span class="mid">
-          <span class="who">${m.is_group
-              ? '<span class="grp">group</span> ' + esc(m.group_name || 'Group chat')
-              : esc(m.who || (m.channel === 'linkedin' ? 'LinkedIn contact'
-                  : m.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'))}${
-            m.direction === 'out' ? '<span class="dirn">you sent</span>'
-              : (m.is_group ? '<span class="dirn">' + esc(m.who || 'someone') + '</span>'
-                 : (m.target_id || !named(m) ? '' : '<span class="newlead">new lead</span>'))}</span>
-          <span class="snip">${esc(m.subject ? m.subject + ' — ' + (m.text || '') : (m.text || '(no text)'))}</span>
+          <span class="who">${c.is_group ? '<span class="grp">group</span> ' : ''}${esc(c.title)}${
+            c.msgs.length > 1 ? `<span class="dirn">${c.msgs.length} messages</span>` : ''}${
+            c.target_id || c.is_group || !named(c) ? '' : '<span class="newlead">not linked</span>'}</span>
+          <span class="snip">${c.last.direction === 'out' ? 'You: ' : (c.is_group && c.last.who ? esc(c.last.who) + ': ' : '')}${
+            esc(c.last.subject ? c.last.subject + ' — ' + (c.last.text || '') : (c.last.text || '(no text)'))}</span>
         </span>
-        <span class="when">${rel(m.at)}</span>
+        <span class="when">${rel(c.last.at)}</span>
       </button>`).join('') : '<div class="empty">Nothing here yet.</div>');
 
   el.querySelectorAll('[data-ibf]').forEach((b) => b.addEventListener('click', () => {
     inboxFilter = b.dataset.ibf; renderInbox();
   }));
-  el.querySelectorAll('[data-ibi]').forEach((b) => b.addEventListener('click', () => {
-    const tgt = Number(b.dataset.tgt);
-    if (tgt) { openBrief(tgt); return; }
-    const m = inboxCache[Number(b.dataset.ibi)];
-    if (m && m.is_group) return;   // a group maps to many people, not one contact
-    openAssign(m);
-  }));
+  el.querySelectorAll('[data-ibk]').forEach((b) => b.addEventListener('click', () => openThread(b.dataset.ibk)));
 }
-
 
 // An unmatched sender is the interesting case: either they're already a contact
 // under a different handle (link it, so it matches forever after) or they're a

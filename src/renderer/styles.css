@@ -280,3 +280,14 @@ input:focus, textarea:focus, select:focus { border-color: rgba(92,139,255,.6); b
 .ib-row.unmatched { opacity: .92; }
 .ib-row .grp { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
   color: var(--accent-hi); border: 1px solid rgba(255,92,106,.3); border-radius: 999px; padding: 0 6px; }
+
+/* ---------- inbox thread view ---------- */
+.th-wrap { display: flex; flex-direction: column; gap: 9px; padding: 4px 2px 12px; }
+.th-msg { max-width: 82%; }
+.th-msg.out { margin-left: auto; text-align: right; }
+.th-from { font-size: 11px; color: var(--tx3); margin-bottom: 2px; padding: 0 4px; }
+.th-bubble { display: inline-block; text-align: left; white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.45; padding: 8px 12px; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--border-soft); color: var(--tx); }
+.th-msg.out .th-bubble { background: var(--grad-btn); border-color: transparent; color: #fff; }
+.th-at { font-size: 10.5px; color: var(--tx3); margin-top: 3px; padding: 0 5px; }
