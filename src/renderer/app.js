@@ -276,6 +276,7 @@ function refreshActiveTab(soft) {
   if ($('#app').hidden) return;
   if (currentTab === 'contacts') loadContacts(soft);
   else if (currentTab === 'queue') loadQueue(soft);
+  else if (currentTab === 'inbox') loadInbox(soft);
   else loadMeetings(soft);
 }
 function startDataPoll() {
@@ -472,8 +473,105 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   currentTab = t.dataset.tab;
   if (currentTab === 'contacts') loadContacts();
   else if (currentTab === 'queue') loadQueue();
+  else if (currentTab === 'inbox') loadInbox();
   else loadMeetings();
 }));
+
+
+// ---- Inbox tab: one aggregated feed across every connected channel ----
+// Each channel is a separate Unipile call, so they're fetched in parallel and
+// merged client-side, newest first. Rows resolved to a contact deep-link to the
+// dossier; unresolved ones are flagged as leads not yet in the Rolodex.
+const CH_GLYPH = { email: '\u2709\uFE0F', whatsapp: '\uD83D\uDCAC', linkedin: 'in' };
+let inboxFilter = 'all';
+let inboxCache = [];
+
+async function loadInbox(soft) {
+  const el = $('#db-body');
+  if (soft && (el.dataset.detail || el.dataset.thread)) return;
+  if (!soft) { delete el.dataset.detail; el.innerHTML = '<div class="empty">Loading your inboxes…</div>'; }
+
+  const { status, body } = await motion.get('/api/channel_accounts');
+  const rows = status === 200 ? (Array.isArray(body) ? body : (body.rows || [])) : [];
+  const chans = [...new Set(rows.filter((r) => r.status === 'connected').map((r) =>
+    r.provider === 'LINKEDIN' ? 'linkedin' : r.provider === 'WHATSAPP' ? 'whatsapp' : 'email'))];
+
+  if (!chans.length) {
+    el.innerHTML = '<div class="empty">No channels connected yet.<br>Add one in Settings → Connected accounts.</div>';
+    return;
+  }
+
+  const results = await Promise.all(chans.map((ch) =>
+    motion.get('/api/inbox?channel=' + ch + '&limit=30').then((r) => ({ ch, r })).catch(() => ({ ch, r: null }))));
+
+  const merged = [];
+  for (const { ch, r } of results) {
+    if (!r || r.status !== 200 || !r.body || !Array.isArray(r.body.messages)) continue;
+    for (const m of r.body.messages) merged.push({ ...m, channel: ch });
+  }
+  merged.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  inboxCache = merged;
+  renderInbox();
+}
+
+function renderInbox() {
+  const el = $('#db-body');
+  delete el.dataset.detail;
+  const list = inboxFilter === 'all' ? inboxCache : inboxCache.filter((m) => m.channel === inboxFilter);
+  const chips = ['all', 'email', 'whatsapp', 'linkedin'].map((c) =>
+    `<button class="ib-chip ${c === inboxFilter ? 'on' : ''}" data-ibf="${c}">${
+      c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + c.charAt(0).toUpperCase() + c.slice(1)}</button>`).join('');
+
+  const named = (m) => !!(m.who && m.who !== 'Unknown');
+  const unmatched = list.filter((m) => m.direction === 'in' && !m.target_id && named(m)).length;
+
+  el.innerHTML = `<div class="ib-filters">${chips}</div>` +
+    (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} sender(s) not in your Rolodex</div>` : '') +
+    (list.length ? list.map((m, i) => `
+      <button class="ib-row ${m.target_id ? '' : 'unmatched'}" data-ibi="${i}" data-tgt="${m.target_id || 0}">
+        <span class="ch ${m.channel === 'linkedin' ? 'li' : ''}">${CH_GLYPH[m.channel] || '\u2691'}</span>
+        <span class="mid">
+          <span class="who">${esc(m.who || (m.channel === 'linkedin' ? 'LinkedIn contact'
+            : m.channel === 'whatsapp' ? 'WhatsApp contact' : 'Unknown sender'))}${
+            m.direction === 'out' ? '<span class="dirn">you sent</span>'
+              : (m.target_id || !named(m) ? '' : '<span class="newlead">new lead</span>')}</span>
+          <span class="snip">${esc(m.subject ? m.subject + ' — ' + (m.text || '') : (m.text || '(no text)'))}</span>
+        </span>
+        <span class="when">${rel(m.at)}</span>
+      </button>`).join('') : '<div class="empty">Nothing here yet.</div>');
+
+  el.querySelectorAll('[data-ibf]').forEach((b) => b.addEventListener('click', () => {
+    inboxFilter = b.dataset.ibf; renderInbox();
+  }));
+  el.querySelectorAll('[data-ibi]').forEach((b) => b.addEventListener('click', () => {
+    const tgt = Number(b.dataset.tgt);
+    if (tgt) { openBrief(tgt); return; }
+    const m = inboxCache[Number(b.dataset.ibi)];
+    // Never create a contact called "Unknown" — LinkedIn doesn't always give a
+    // name back, and a placeholder contact is worse than none.
+    if (!m || !m.who || m.who === 'Unknown') return;
+    addToRolodex(m);
+  }));
+}
+
+// An inbound message from someone unknown is a lead — capture them in one click.
+async function addToRolodex(m) {
+  if (!m) return;
+  const body = { name: m.who || 'Unknown', stage: 'engaged' };
+  if (m.channel === 'email' && /@/.test(m.who || '')) body.email = m.who;
+  const res = await motion.post('/api/targets', body);
+  if (res.status < 300) {
+    const id = res.body && (res.body.id || (res.body.rows && res.body.rows[0] && res.body.rows[0].id));
+    await motion.post('/api/append', {
+      target: body.name,
+      content: (m.channel === 'email' ? 'Email' : m.channel === 'whatsapp' ? 'WhatsApp' : 'LinkedIn')
+        + ' from ' + (m.who || 'them') + ': ' + (m.text || ''),
+      kind: m.channel === 'email' ? 'email' : 'note',
+    }).catch(() => {});
+    loadContacts(true);
+    if (id) openBrief(id); else loadInbox(false);
+  }
+}
 
 // ---- Meetings tab: Calendly-style booking-page setup + upcoming bookings ----
 async function loadMeetings(soft) {

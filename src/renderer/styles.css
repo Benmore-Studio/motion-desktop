@@ -257,3 +257,24 @@ input:focus, textarea:focus, select:focus { border-color: rgba(92,139,255,.6); b
 /* Rendered markdown supplies its own block spacing — drop the raw-text mode. */
 .msg.bot .bubble.md { white-space: normal; }
 .action-card .detail.md { white-space: normal; }
+
+/* ---------- inbox aggregator ---------- */
+.ib-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.ib-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+  color: var(--tx2); background: var(--panel2); }
+.ib-chip.on { color: #fff; background: var(--grad-btn); border-color: transparent; }
+.ib-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 10px; border-radius: 10px; border: 1px solid transparent; }
+.ib-row:hover { background: var(--panel2); border-color: var(--border-soft); }
+.ib-row .ch { font-size: 13px; width: 20px; text-align: center; flex-shrink: 0; padding-top: 1px; }
+.ib-row .ch.li { font-size: 10px; font-weight: 700; color: #fff; background: #0a66c2;
+  border-radius: 3px; padding: 1px 0; line-height: 1.5; }
+.ib-row .mid { flex: 1; min-width: 0; }
+.ib-row .who { display: block; font-weight: 600; color: var(--tx); font-size: 13px; }
+.ib-row .who .dirn { font-weight: 400; color: var(--tx3); font-size: 11.5px; margin-left: 5px; }
+.ib-row .snip { display: block; font-size: 12.5px; color: var(--tx2); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.ib-row .when { font-size: 11.5px; color: var(--tx3); flex-shrink: 0; padding-top: 1px; }
+.ib-row .newlead { font-size: 10.5px; color: var(--amber, #f2c94c); border: 1px solid rgba(242,201,76,.3);
+  border-radius: 999px; padding: 0 6px; margin-left: 6px; }
+.ib-row.unmatched { opacity: .92; }
