@@ -546,12 +546,87 @@ function renderInbox() {
   el.querySelectorAll('[data-ibi]').forEach((b) => b.addEventListener('click', () => {
     const tgt = Number(b.dataset.tgt);
     if (tgt) { openBrief(tgt); return; }
-    const m = inboxCache[Number(b.dataset.ibi)];
-    // Never create a contact called "Unknown" — LinkedIn doesn't always give a
-    // name back, and a placeholder contact is worse than none.
-    if (!m || !m.who || m.who === 'Unknown') return;
-    addToRolodex(m);
+    openAssign(inboxCache[Number(b.dataset.ibi)]);
   }));
+}
+
+
+// An unmatched sender is the interesting case: either they're already a contact
+// under a different handle (link it, so it matches forever after) or they're a
+// new lead. Both write a contact_channels row — that's the organising spine.
+function chKindFor(m) {
+  if (m.channel === 'email') return 'email';
+  if (m.channel === 'whatsapp') return 'whatsapp';
+  if (m.channel === 'linkedin') return 'linkedin';
+  return 'other';
+}
+
+function openAssign(m) {
+  if (!m) return;
+  const el = $('#db-body');
+  el.dataset.detail = '1';
+  const kind = chKindFor(m);
+  const handle = m.handle || '';
+  el.innerHTML = `
+    <a class="back" href="#">← Inbox</a>
+    <div class="detail-head">
+      <h2>Who is this?</h2>
+      <div class="meta">${esc(m.who || 'Unnamed sender')} · ${esc(kind)}${handle ? ' · ' + esc(handle) : ''}</div>
+      <div class="ctx-quote" style="margin-top:8px;font-size:12.5px;color:var(--tx2)">${esc((m.text || '').slice(0, 220))}</div>
+    </div>
+    <div class="section-h">Link to an existing contact</div>
+    <input id="as-filter" placeholder="Filter contacts…" style="margin-bottom:8px">
+    <div id="as-list"></div>
+    <div class="section-h">Or create a new contact</div>
+    <div class="entry" style="padding:12px">
+      <div style="display:flex;gap:6px">
+        <input id="as-name" value="${esc(m.who && m.who !== 'Unknown' ? m.who : '')}" placeholder="Full name" style="flex:1">
+        <button id="as-new" class="primary" style="padding:6px 14px">Create</button>
+      </div>
+      <div id="as-err" class="chan-err"></div>
+    </div>`;
+
+  const paint = (q) => {
+    const rows = contacts.filter((c) => !q || (c.name + ' ' + (c.company || '')).toLowerCase().includes(q.toLowerCase())).slice(0, 40);
+    $('#as-list').innerHTML = rows.length ? rows.map((c) => `
+      <button class="list-row" data-as="${c.id}">${dot(c.stage)}<span class="nm">${esc(c.name)}</span>
+        <span class="sub">${esc(c.company || '')}</span><span class="right">link →</span></button>`).join('')
+      : '<div class="empty">No matching contacts.</div>';
+    $('#as-list').querySelectorAll('[data-as]').forEach((b) =>
+      b.addEventListener('click', () => linkHandle(Number(b.dataset.as), m, kind, handle)));
+  };
+  paint('');
+  $('#as-filter').addEventListener('input', function () { paint(this.value.trim()); });
+  el.querySelector('.back').addEventListener('click', (e) => { e.preventDefault(); delete el.dataset.detail; renderInbox(); });
+  $('#as-new').addEventListener('click', async () => {
+    const name = $('#as-name').value.trim();
+    if (!name) { $('#as-err').textContent = 'Give them a name.'; return; }
+    const res = await motion.post('/api/targets', { name, stage: 'engaged' });
+    if (res.status >= 300) { $('#as-err').textContent = 'Could not create that contact.'; return; }
+    const id = res.body && (res.body.id || (res.body.rows && res.body.rows[0] && res.body.rows[0].id));
+    if (!id) { $('#as-err').textContent = 'Created, but no id came back.'; return; }
+    linkHandle(id, m, kind, handle);
+  });
+}
+
+async function linkHandle(targetId, m, kind, handle) {
+  if (handle) {
+    await motion.post('/api/contact_channels', {
+      target_id: targetId, kind, value: handle, norm: normCh(kind, handle),
+      is_primary: false, source: 'inbound',
+    });
+  }
+  // File the message we were looking at so the contact has the history.
+  await motion.post('/api/context_entries', {
+    target_id: targetId,
+    kind: m.channel === 'email' ? 'email' : 'note',
+    content: (m.subject ? m.subject + ' — ' : '') + (m.text || ''),
+    source: 'inbound',
+  }).catch(() => {});
+  delete $('#db-body').dataset.detail;
+  await loadContacts(true);
+  await loadInbox(false);
+  openBrief(targetId);
 }
 
 // An inbound message from someone unknown is a lead — capture them in one click.
@@ -681,6 +756,91 @@ function renderContacts(list) {
   el.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => openBrief(Number(b.dataset.id))));
 }
 
+
+// ---------------- contact channels (how to reach someone) ----------------
+// A contact has many identities: several emails, a phone, LinkedIn, WhatsApp,
+// iMessage. `norm` is the matching key and MUST match the server's rule —
+// lowercased email, last-10 phone digits, bare linkedin handle — otherwise an
+// assigned handle won't resolve on the next inbound message.
+const CH_KINDS = ['email', 'phone', 'whatsapp', 'imessage', 'linkedin', 'other'];
+const CH_ICON = { email: '\u2709\uFE0F', phone: '\uD83D\uDCDE', whatsapp: '\uD83D\uDCAC', imessage: '\uD83D\uDCF1', linkedin: 'in', other: '\u2691' };
+
+function normCh(kind, value) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  if (kind === 'email') return v.toLowerCase();
+  if (kind === 'linkedin') {
+    const m = v.match(/\/in\/([^/?#]+)/);
+    return (m ? m[1] : v).toLowerCase();
+  }
+  if (kind === 'phone' || kind === 'whatsapp' || kind === 'imessage') {
+    const d = v.replace(/[^0-9]/g, '');
+    return d.length >= 10 ? d.slice(-10) : d;
+  }
+  return v.toLowerCase();
+}
+
+async function loadChannelsFor(targetId) {
+  const { status, body } = await motion.get('/api/contact_channels?per_page=100');
+  if (status !== 200) return [];
+  const rows = Array.isArray(body) ? body : (body.rows || []);
+  return rows.filter((r) => Number(r.target_id) === Number(targetId));
+}
+
+function renderChannelBox(targetId, rows) {
+  const list = rows.length ? rows.map((c) => `
+    <div class="chan-row">
+      <span class="prov">${CH_ICON[c.kind] || '\u2691'} ${esc(c.kind)}</span>
+      <span class="who">${esc(c.value)}</span>
+      ${c.is_primary ? '<span class="chan-badge ok">primary</span>' : `<button class="ghost cc-prim" data-id="${c.id}" data-kind="${esc(c.kind)}" style="padding:1px 7px;font-size:11px">make primary</button>`}
+      <button class="ghost cc-del" data-id="${c.id}" title="Remove" style="padding:1px 7px">\u00d7</button>
+    </div>`).join('') : '<span class="chan-empty">No channels yet — add one so inbound messages match this person.</span>';
+
+  return `<div class="section-h">Reachable on</div>
+    <div class="entry" style="padding:12px">
+      <div class="chan-list">${list}</div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <select id="cc-kind" style="flex:0 0 110px">${CH_KINDS.map((k) => `<option value="${k}">${k}</option>`).join('')}</select>
+        <input id="cc-val" placeholder="email, phone, or profile URL" style="flex:1">
+        <button id="cc-add" class="primary" style="padding:6px 14px">Add</button>
+      </div>
+      <div id="cc-err" class="chan-err"></div>
+    </div>`;
+}
+
+function wireChannelBox(targetId) {
+  const refresh = async () => {
+    const rows = await loadChannelsFor(targetId);
+    const host = $('#cc-host');
+    if (!host) return;
+    host.innerHTML = renderChannelBox(targetId, rows);
+    wireChannelBox(targetId);
+  };
+  $('#cc-add')?.addEventListener('click', async () => {
+    const kind = $('#cc-kind').value, value = $('#cc-val').value.trim();
+    if (!value) { $('#cc-err').textContent = 'Enter a value first.'; return; }
+    const norm = normCh(kind, value);
+    if (!norm) { $('#cc-err').textContent = 'That does not look usable for matching.'; return; }
+    const rows = await loadChannelsFor(targetId);
+    const res = await motion.post('/api/contact_channels', {
+      target_id: Number(targetId), kind, value, norm,
+      is_primary: !rows.some((r) => r.kind === kind), source: 'manual',
+    });
+    if (res.status >= 300) { $('#cc-err').textContent = (res.body && res.body.error) || 'Could not add that.'; return; }
+    refresh();
+  });
+  document.querySelectorAll('.cc-del').forEach((b) => b.addEventListener('click', async () => {
+    await motion.del('/api/contact_channels/' + b.dataset.id); refresh();
+  }));
+  document.querySelectorAll('.cc-prim').forEach((b) => b.addEventListener('click', async () => {
+    const rows = await loadChannelsFor(targetId);
+    await Promise.all(rows.filter((r) => r.kind === b.dataset.kind && r.is_primary)
+      .map((r) => motion.patch('/api/contact_channels/' + r.id, { is_primary: false })));
+    await motion.patch('/api/contact_channels/' + b.dataset.id, { is_primary: true });
+    refresh();
+  }));
+}
+
 async function openBrief(id) {
   const el = $('#db-body');
   el.dataset.detail = '1';
@@ -701,6 +861,7 @@ async function openBrief(id) {
         ${t.phone ? `<span class="chip">${esc(t.phone)}</span>` : ''}
       </div>
     </div>
+    <div id="cc-host"></div>
     ${fus.length ? `<div class="section-h">Open follow-ups</div>` + fus.map((f) => `
       <div class="fu-row">${dot(t.stage)}<span>${esc(f.note)}</span>
         <span class="ch">${esc(f.channel || '')}</span>
@@ -712,6 +873,12 @@ async function openBrief(id) {
         <div class="body">${esc(e.content)}</div>
       </div>`).join('') : '<div class="empty">No context yet.</div>'}`;
   el.querySelector('.back').addEventListener('click', (e) => { e.preventDefault(); renderContacts(); });
+  loadChannelsFor(id).then((rows) => {
+    const host = $('#cc-host');
+    if (!host) return;
+    host.innerHTML = renderChannelBox(id, rows);
+    wireChannelBox(id);
+  });
 }
 
 async function loadQueue(soft) {

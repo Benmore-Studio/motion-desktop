@@ -331,6 +331,11 @@ function registerIpc() {
     if (!c.token) return { status: 401, body: { error: 'not_logged_in' } };
     return jfetch(baseUrl(c) + p, { method: 'POST', headers: authed(c, { 'Content-Type': 'application/json' }), body: JSON.stringify(body || {}) });
   });
+  ipcMain.handle('api:delete', async (_e, p) => {
+    const c = loadCfg();
+    if (!c.token) return { status: 401, body: { error: 'not_logged_in' } };
+    return jfetch(baseUrl(c) + p, { method: 'DELETE', headers: authed(c) });
+  });
   ipcMain.handle('api:patch', async (_e, p, body) => {
     const c = loadCfg();
     if (!c.token) return { status: 401, body: { error: 'not_logged_in' } };
