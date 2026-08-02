@@ -314,3 +314,6 @@ label.f input, label.f select { flex: 1; }
 .fu-row .note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who-link { font-weight: 600; color: var(--accent-hi); font-size: 12.5px; flex: 0 0 auto; }
 .who-link:hover { text-decoration: underline; }
+.detail-head { position: relative; }
+#ct-del { position: absolute; top: 0; right: 0; color: var(--red); border-color: rgba(235,87,87,.3); }
+#ct-del:hover { background: rgba(235,87,87,.12); color: var(--red); }

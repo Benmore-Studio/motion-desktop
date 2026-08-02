@@ -669,6 +669,7 @@ async function openBrief(id) {
       <h2>${esc(t.name)}</h2>
       <div class="meta">${esc([t.title, t.company].filter(Boolean).join(' · ') || 'no company yet')}
         · last touch ${t.last_touch ? rel(t.last_touch) + ' ago' : 'never'}</div>
+      <button id="ct-del" class="ghost mini danger" title="Delete this contact">Delete contact</button>
     </div>
 
     <div class="section-h">Contact info <button id="ci-edit" class="ghost mini">edit</button></div>
@@ -729,6 +730,32 @@ async function openBrief(id) {
     e.preventDefault();
     delete el.dataset.detail;
     if (currentTab === 'queue') loadQueue(false); else renderContacts();
+  });
+
+  // Deletion is permanent and takes the notes with it — make them type the name.
+  $('#ct-del').addEventListener('click', async () => {
+    const typed = prompt(
+      `Delete ${t.name} permanently?\n\nThis removes ${ctx.length} note(s) and ${fus.length} follow-up(s) and cannot be undone.\n\nType the contact's name to confirm:`);
+    if (typed === null) return;
+    if (typed.trim().toLowerCase() !== String(t.name).trim().toLowerCase()) {
+      alert('That did not match the contact name — nothing was deleted.');
+      return;
+    }
+    const res = await motion.del('/api/targets/' + id);
+    if (res.status >= 300) { alert('Could not delete that contact.'); return; }
+    // auto-CRUD only removes the row, so clear what hung off it
+    const kill = async (path, key) => {
+      const r = await motion.get(path + '?per_page=300');
+      const rows = Array.isArray(r.body) ? r.body : ((r.body || {}).rows || []);
+      await Promise.all(rows.filter((x) => Number(x[key]) === Number(id))
+        .map((x) => motion.del(path + '/' + x.id)));
+    };
+    await kill('/api/context_entries', 'target_id');
+    await kill('/api/follow_ups', 'target_id');
+    await kill('/api/contact_channels', 'target_id');
+    delete el.dataset.detail;
+    await loadContacts(true);
+    renderContacts();
   });
 
   $('#ci-edit').addEventListener('click', () => { $('#ci-view').hidden = true; $('#ci-form').hidden = false; });
