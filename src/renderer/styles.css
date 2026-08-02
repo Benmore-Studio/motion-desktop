@@ -317,3 +317,4 @@ label.f input, label.f select { flex: 1; }
 .detail-head { position: relative; }
 #ct-del { position: absolute; top: 0; right: 0; color: var(--red); border-color: rgba(235,87,87,.3); }
 #ct-del:hover { background: rgba(235,87,87,.12); color: var(--red); }
+.danger-box { margin-top: 12px; border-color: rgba(235,87,87,.35) !important; }

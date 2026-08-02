@@ -732,30 +732,57 @@ async function openBrief(id) {
     if (currentTab === 'queue') loadQueue(false); else renderContacts();
   });
 
-  // Deletion is permanent and takes the notes with it — make them type the name.
-  $('#ct-del').addEventListener('click', async () => {
-    const typed = prompt(
-      `Delete ${t.name} permanently?\n\nThis removes ${ctx.length} note(s) and ${fus.length} follow-up(s) and cannot be undone.\n\nType the contact's name to confirm:`);
-    if (typed === null) return;
-    if (typed.trim().toLowerCase() !== String(t.name).trim().toLowerCase()) {
-      alert('That did not match the contact name — nothing was deleted.');
-      return;
-    }
-    const res = await motion.del('/api/targets/' + id);
-    if (res.status >= 300) { alert('Could not delete that contact.'); return; }
-    // auto-CRUD only removes the row, so clear what hung off it
-    const kill = async (path, key) => {
-      const r = await motion.get(path + '?per_page=300');
-      const rows = Array.isArray(r.body) ? r.body : ((r.body || {}).rows || []);
-      await Promise.all(rows.filter((x) => Number(x[key]) === Number(id))
-        .map((x) => motion.del(path + '/' + x.id)));
+  // Deletion is permanent and takes the notes with it, so it's confirmed by
+  // typing the name. NOTE: window.prompt() does not exist in Electron — it
+  // silently does nothing — so this is an inline confirmation instead.
+  $('#ct-del').addEventListener('click', () => {
+    const head = el.querySelector('.detail-head');
+    if (head.querySelector('#del-confirm')) return;
+    head.insertAdjacentHTML('beforeend', `
+      <div id="del-confirm" class="entry danger-box">
+        <b style="font-size:13px">Delete ${esc(t.name)} permanently?</b>
+        <div style="font-size:12.5px;color:var(--tx2);margin:4px 0 8px">
+          Also removes ${ctx.length} note(s) and ${fus.length} follow-up(s). This cannot be undone.
+          Type the contact's name to confirm.</div>
+        <div style="display:flex;gap:6px">
+          <input id="del-name" placeholder="${esc(t.name)}" style="flex:1" autocomplete="off">
+          <button id="del-cancel" class="ghost">Cancel</button>
+          <button id="del-go" class="primary" style="background:var(--red)">Delete</button>
+        </div>
+        <div id="del-err" class="chan-err"></div>
+      </div>`);
+    const input = $('#del-name');
+    input.focus();
+    $('#del-cancel').addEventListener('click', () => $('#del-confirm').remove());
+    const go = async () => {
+      if (input.value.trim().toLowerCase() !== String(t.name).trim().toLowerCase()) {
+        $('#del-err').textContent = 'That does not match the contact name.';
+        return;
+      }
+      $('#del-go').disabled = true;
+      $('#del-go').textContent = 'Deleting…';
+      // auto-CRUD only removes the contact row, so clear what hung off it first
+      const kill = async (path) => {
+        const r = await motion.get(path + '?per_page=300');
+        const rows = Array.isArray(r.body) ? r.body : ((r.body || {}).rows || []);
+        await Promise.all(rows.filter((x) => Number(x.target_id) === Number(id))
+          .map((x) => motion.del(path + '/' + x.id)));
+      };
+      await kill('/api/context_entries');
+      await kill('/api/follow_ups');
+      await kill('/api/contact_channels');
+      const res = await motion.del('/api/targets/' + id);
+      if (res.status >= 300) {
+        $('#del-err').textContent = 'Could not delete that contact.';
+        $('#del-go').disabled = false; $('#del-go').textContent = 'Delete';
+        return;
+      }
+      delete el.dataset.detail;
+      await loadContacts(true);
+      renderContacts();
     };
-    await kill('/api/context_entries', 'target_id');
-    await kill('/api/follow_ups', 'target_id');
-    await kill('/api/contact_channels', 'target_id');
-    delete el.dataset.detail;
-    await loadContacts(true);
-    renderContacts();
+    $('#del-go').addEventListener('click', go);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   });
 
   $('#ci-edit').addEventListener('click', () => { $('#ci-view').hidden = true; $('#ci-form').hidden = false; });
