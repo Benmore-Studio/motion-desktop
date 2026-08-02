@@ -7,7 +7,6 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
-const { MeterShim } = require('./meter-shim');
 const imessage = require('./imessage');
 
 const SYSTEM_PROMPT =
@@ -29,12 +28,6 @@ const BUILTIN_TOOLS_OFF = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Web
 // Canonical host for new installs; a saved cfg.base still wins, so existing
 // sign-ins on the old motion-v9t7fg URL keep working (same app, same data).
 const DEFAULT_BASE = process.env.BLITZ_URL || process.env.MOTION_URL || 'https://www.getblitz.app';
-// Platform AI ("Blitz credits"): the blitz-meter Benmore app, fronted locally
-// by MeterShim (see meter-shim.js for why the shim is needed). Override with
-// BLITZ_METER_URL or `meter` in userData/config.json.
-const DEFAULT_METER = process.env.BLITZ_METER_URL || 'https://blitz-meter-v6fnp2.benmore.ai';
-const meterUrl = (cfg) => (cfg.meter || DEFAULT_METER).replace(/\/$/, '');
-const shim = new MeterShim();
 
 let win = null;
 
@@ -171,17 +164,8 @@ async function agentSend(prompt) {
   if (!cfg.token) return sendToWin({ kind: 'done', ok: false, error: 'Not signed in.' });
   const engine = cfg.engine || 'byok';
   if (engine === 'claude-code') return agentSendClaudeCode(cfg, prompt);
-  if (engine === 'platform') {
-    if (!meterUrl(cfg)) return sendToWin({ kind: 'done', ok: false, error: 'Blitz credits are unavailable — switch engines in Settings for now.' });
-    try {
-      await shim.start(() => ({ meterUrl: meterUrl(loadCfg()), token: loadCfg().token }));
-    } catch (e) {
-      return sendToWin({ kind: 'done', ok: false, error: 'Could not start the local Blitz bridge: ' + (e.message || e) });
-    }
-    return agentSendSdk(cfg, prompt, true);
-  }
   if (!cfg.anthropicKey) return sendToWin({ kind: 'done', ok: false, error: 'No API key set — add one in Settings.' });
-  return agentSendSdk(cfg, prompt, false);
+  return agentSendSdk(cfg, prompt);
 }
 
 // Modes B + C — the Claude Agent SDK, keyed two ways:
@@ -189,18 +173,13 @@ async function agentSend(prompt) {
 //   Platform ("Blitz credits"): ANTHROPIC_BASE_URL → the metering proxy,
 //   ANTHROPIC_AUTH_TOKEN → the user's Blitz session token. The proxy meters
 //   usage and deducts wallet credits (cost × 1.5); no user key involved.
-async function agentSendSdk(cfg, prompt, platform) {
+async function agentSendSdk(cfg, prompt) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const send = sendToWin;
   currentAbort = new AbortController();
   const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_BASE_URL; delete env.ANTHROPIC_AUTH_TOKEN;
-  if (platform) {
-    env.ANTHROPIC_BASE_URL = shim.baseUrl;
-    env.ANTHROPIC_AUTH_TOKEN = shim.authToken;
-  } else {
-    env.ANTHROPIC_API_KEY = cfg.anthropicKey;
-  }
+  delete env.ANTHROPIC_BASE_URL; delete env.ANTHROPIC_AUTH_TOKEN;
+  env.ANTHROPIC_API_KEY = cfg.anthropicKey;
   const q = query({
     prompt,
     options: {
@@ -303,7 +282,6 @@ function registerIpc() {
       base: baseUrl(c), email: c.email || '', loggedIn: !!c.token,
       hasKey: !!c.anthropicKey, model: c.model || 'claude-opus-5',
       engine: c.engine || '', onboarded: !!c.onboarded,
-      platformReady: !!meterUrl(c),
     };
   });
   ipcMain.handle('cfg:setKey', (_e, key) => { const c = loadCfg(); c.anthropicKey = String(key || '').trim(); saveCfg(c); return true; });
@@ -378,6 +356,5 @@ app.whenReady().then(() => {
   }
   registerIpc(); createWindow();
 });
-app.on('before-quit', () => shim.stop());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

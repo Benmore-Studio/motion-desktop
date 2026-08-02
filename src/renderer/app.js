@@ -19,9 +19,7 @@ let cfg = {};
 let engines = { claudeCode: null };
 
 const engineReady = () =>
-  cfg.engine === 'claude-code' ||
-  (cfg.engine === 'byok' && cfg.hasKey) ||
-  (cfg.engine === 'platform' && cfg.platformReady);
+  cfg.engine === 'claude-code' || (cfg.engine === 'byok' && cfg.hasKey);
 
 // ================= onboarding wizard =================
 let wstep = 1;
@@ -70,12 +68,7 @@ function renderGate() {
     title.textContent = 'Power your agent.';
     sub.textContent = 'Pick how Blitz thinks. You can change this anytime in Settings.';
     const cc = engines.claudeCode;
-    const plat = cfg.platformReady;
     box.innerHTML = wdots() + `
-      <div class="engine-card ${plat ? '' : 'disabled'}" ${plat ? 'data-engine="platform"' : ''}>
-        <div class="ec-head"><b>Blitz credits</b><span class="ec-tag ${plat ? 'ok' : ''}">${plat ? 'Recommended · $5 free to start' : 'Almost live'}</span></div>
-        <span>No key, no setup — works instantly. Powered by Claude Opus 5 · $5 free to start.</span>
-      </div>
       <div class="engine-card ${cc ? '' : 'disabled'}" data-engine="claude-code">
         <div class="ec-head"><b>Use my Claude subscription</b>${cc ? '<span class="ec-tag ok">Detected · ' + esc(cc) + '</span>' : '<span class="ec-tag">Claude Code not found</span>'}</div>
         <span>Runs through your installed Claude Code — no extra cost, uses your Pro/Max plan.</span>
@@ -87,7 +80,7 @@ function renderGate() {
       </div>
       <div class="gate-err" id="g-err"></div>
       <div class="wnav"><button id="g-back" class="ghost">← Back</button><span class="spacer"></span><button id="g-next" class="primary wide">Continue</button></div>`;
-    let chosen = cfg.engine || (plat ? 'platform' : cc ? 'claude-code' : 'byok');
+    let chosen = cfg.engine || (cc ? 'claude-code' : 'byok');
     const mark = () => box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.classList.toggle('sel', c.dataset.engine === chosen));
     mark();
     box.querySelectorAll('.engine-card[data-engine]').forEach((c) => c.addEventListener('click', () => {
@@ -163,8 +156,7 @@ function renderGate() {
       <div class="t"><b>${label}</b><span>${note}</span></div></div>`;
   box.innerHTML = wdots() +
     sum(true, 'Rolodex', esc(cfg.email || 'connected')) +
-    sum(true, 'Agent', cfg.engine === 'platform' ? 'Blitz credits · $5 free to start'
-      : cfg.engine === 'claude-code' ? 'Claude Code (your subscription)'
+    sum(true, 'Agent', cfg.engine === 'claude-code' ? 'Claude Code (your subscription)'
       : 'API key · ' + esc((cfg.model || 'claude-opus-5').replace('claude-', ''))) +
     sum(!!(bridges.channels > 0), 'Email & LinkedIn', bridges.channels > 0 ? bridges.channels + ' channel(s) connected' : 'add anytime in Settings') +
     sum(!!bridges.imessage, 'iMessage', bridges.imessage ? 'ready — texts from your number' : 'enable anytime') + `
@@ -254,7 +246,6 @@ function md(src) {
 
 // ================= app =================
 function engineLabel() {
-  if (cfg.engine === 'platform') return 'Blitz credits';
   return cfg.engine === 'claude-code'
     ? 'Claude Code'
     : (cfg.model || 'claude-opus-5').replace('claude-', '') + ' · key';
@@ -264,7 +255,6 @@ async function enterApp() {
   $('#engine-badge').textContent = engineLabel();
   $('#engine-badge').classList.add('ok');
   loadContacts();
-  refreshBalance();
   startDataPoll();
 }
 
@@ -276,7 +266,6 @@ function refreshActiveTab(soft) {
   if ($('#app').hidden) return;
   if (currentTab === 'contacts') loadContacts(soft);
   else if (currentTab === 'queue') loadQueue(soft);
-  else if (currentTab === 'inbox') loadInbox(soft);
   else loadMeetings(soft);
 }
 function startDataPoll() {
@@ -284,49 +273,6 @@ function startDataPoll() {
   dataPoll = setInterval(() => { if (!document.hidden) refreshActiveTab(true); }, 7000);
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActiveTab(true); });
-
-// ---------------- billing (wallet chip + modal) ----------------
-let walletCache = null;
-const fmtCents = (c) => '$' + (Number(c || 0) / 100).toFixed(2);
-
-async function refreshBalance() {
-  const { status, body } = await motion.get('/api/billing/wallet');
-  if (status !== 200) { $('#balance-chip').hidden = true; return null; }
-  walletCache = body;
-  const chip = $('#balance-chip');
-  chip.hidden = false;
-  chip.textContent = '⚡ ' + fmtCents(body.balance_cents);
-  chip.classList.toggle('ok', body.balance_cents > 0);
-  return body;
-}
-
-const LEDGER_ICON = { grant: '🎁', topup: '＋', ai: '✨', channel: '✉️' };
-function openBilling() {
-  $('#billing-modal').hidden = false;
-  $('#bill-err').textContent = '';
-  const render = (w) => {
-    if (!w) return;
-    $('#bill-balance').textContent = fmtCents(w.balance_cents);
-    const rows = Array.isArray(w.ledger) ? w.ledger : [];
-    $('#bill-ledger').innerHTML = rows.length ? rows.map((r) => `
-      <div style="display:flex;gap:8px;align-items:center;padding:6px 2px;border-bottom:1px solid var(--border)">
-        <span>${LEDGER_ICON[r.kind] || '·'}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx2)">${esc(r.meta || r.kind)}</span>
-        <span style="color:${r.cents < 0 ? 'var(--tx2)' : 'var(--green, #4cb782)'};font-variant-numeric:tabular-nums">${r.cents < 0 ? '−' : '+'}${fmtCents(Math.abs(r.cents))}</span>
-      </div>`).join('') : '<div style="color:var(--tx3)">No activity yet.</div>';
-  };
-  render(walletCache);
-  refreshBalance().then(render);
-}
-$('#balance-chip').addEventListener('click', openBilling);
-$('#bill-close').addEventListener('click', () => { $('#billing-modal').hidden = true; });
-document.querySelectorAll('#billing-modal [data-pack]').forEach((b) => b.addEventListener('click', async () => {
-  b.disabled = true; $('#bill-err').textContent = '';
-  const { status, body } = await motion.post('/api/billing/topup', { pack: b.dataset.pack });
-  if (status === 200 && body.url) motion.openUrl(body.url);
-  else $('#bill-err').textContent = (body && body.error) || 'Could not start checkout.';
-  b.disabled = false;
-}));
 
 // ---------------- chat ----------------
 let botBubble = null;   // current streaming bubble
@@ -418,14 +364,7 @@ motion.onAgent((ev) => {
       const u = ev.usage || {};
       const bits = [];
       if (u.input_tokens != null) bits.push(`${u.input_tokens}▸${u.output_tokens} tok`);
-      if (cfg.engine === 'platform') {
-        const before = walletCache ? walletCache.balance_cents : null;
-        refreshBalance().then((w) => {
-          if (!w) return;
-          const burned = before != null ? before - w.balance_cents : null;
-          if (burned > 0) $('#statusline').innerHTML += ` · <span class="cost">−${fmtCents(burned)} credits</span>`;
-        });
-      } else if (ev.cost != null) bits.push(`<span class="cost">$${Number(ev.cost).toFixed(4)}</span>`);
+      if (ev.cost != null) bits.push(`<span class="cost">$${Number(ev.cost).toFixed(4)}</span>`);
       $('#statusline').innerHTML = bits.join(' · ');
     } else {
       $('#statusline').innerHTML = `<span style="color:var(--red)">${esc(ev.error || 'agent error')}</span>`;
@@ -464,7 +403,7 @@ let contacts = [];
 $('#db-refresh').addEventListener('click', async () => {
   const b = $('#db-refresh');
   b.classList.add('spin');
-  await Promise.all([refreshActiveTab(false), refreshBalance()]);
+  await refreshActiveTab(false);
   setTimeout(() => b.classList.remove('spin'), 350);
 });
 
@@ -473,366 +412,9 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   currentTab = t.dataset.tab;
   if (currentTab === 'contacts') loadContacts();
   else if (currentTab === 'queue') loadQueue();
-  else if (currentTab === 'inbox') loadInbox();
   else loadMeetings();
 }));
 
-
-// ---- Inbox tab: one aggregated feed across every connected channel ----
-// Each channel is a separate Unipile call, so they're fetched in parallel and
-// merged client-side, newest first. Rows resolved to a contact deep-link to the
-// dossier; unresolved ones are flagged as leads not yet in the Rolodex.
-const CH_GLYPH = { email: '\u2709\uFE0F', whatsapp: '\uD83D\uDCAC', linkedin: 'in', imessage: '\uD83D\uDCF1' };
-let inboxFilter = 'all';
-let inboxCache = [];
-
-// Each channel is a separate multi-call round trip to Unipile, so this is slow
-// by nature. Two things matter: never let a late response overwrite whatever
-// the user navigated to (that was "it kicks me out after a bit"), and paint
-// each channel the moment it lands rather than waiting for the slowest.
-let inboxGen = 0;
-let inboxLoading = false;
-let inboxLoadedAt = 0;
-const INBOX_MIN_AGE_MS = 45000;   // Unipile round trips are slow; don't refetch on the 7s tick
-async function loadInbox(soft) {
-  const el = $('#db-body');
-  if (soft && (el.dataset.detail || el.dataset.thread)) return;
-  // A load takes longer than the poll interval, so an unguarded poll kept
-  // superseding the in-flight request and the list never rendered at all.
-  if (soft && (inboxLoading || Date.now() - inboxLoadedAt < INBOX_MIN_AGE_MS)) return;
-  const gen = ++inboxGen;
-  inboxLoading = true;
-  const stale = () => gen !== inboxGen || currentTab !== 'inbox' || !!$('#db-body').dataset.detail;
-
-  if (!soft) {
-    delete el.dataset.detail;
-    el.innerHTML = '<div class="empty">Loading your inboxes…</div>';
-  }
-
-  await buildChannelIndex().catch(() => {});
-  const { status, body } = await motion.get('/api/channel_accounts');
-  if (stale()) { inboxLoading = false; return; }
-  const rows = status === 200 ? (Array.isArray(body) ? body : (body.rows || [])) : [];
-  const chans = [...new Set(rows.filter((r) => r.status === 'connected').map((r) =>
-    r.provider === 'LINKEDIN' ? 'linkedin' : r.provider === 'WHATSAPP' ? 'whatsapp' : 'email'))];
-
-
-
-  const acc = [];
-  let done = 0;
-  const total = chans.length + 1;   // +1 for the local iMessage read
-
-  // iMessage is read from the Mac itself, not Unipile — merged in as a peer.
-  const imsg = motion.imessageInbox(300).then((r) => {
-    done++;
-    if (stale()) return;
-    imessageNeedsAccess = !!(r && r.needsAccess);
-    if (r && r.ok && Array.isArray(r.messages)) {
-      for (const m of r.messages) acc.push({ ...m, channel: 'imessage' });
-    }
-    acc.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
-    inboxCache = resolveLocal(acc.slice());
-    renderInbox(done < total ? total - done : 0);
-  }).catch(() => { done++; });
-
-  await Promise.all([imsg].concat(chans.map((ch) => motion.get('/api/inbox?channel=' + ch + '&limit=30')
-    .catch(() => null)
-    .then((r) => {
-      done++;
-      if (stale()) return;
-      if (r && r.status === 200 && r.body && Array.isArray(r.body.messages)) {
-        for (const m of r.body.messages) acc.push({ ...m, channel: ch });
-      }
-      acc.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
-      inboxCache = resolveLocal(acc.slice());
-      renderInbox(done < total ? total - done : 0);
-    }))));
-  inboxLoading = false;
-  inboxLoadedAt = Date.now();
-}
-
-
-
-let imessageNeedsAccess = false;
-let channelIndex = null;   // norm -> target_id, built from contact_channels
-
-async function buildChannelIndex() {
-  const { status, body } = await motion.get('/api/contact_channels?per_page=500');
-  const idx = new Map();
-  if (status === 200) {
-    const rows = Array.isArray(body) ? body : (body.rows || []);
-    for (const r of rows) if (r.norm) idx.set(String(r.norm).toLowerCase(), r.target_id);
-  }
-  for (const c of contacts) {
-    if (c.phone) idx.set(normCh('phone', c.phone), c.id);
-    if (c.email) idx.set(normCh('email', c.email), c.id);
-  }
-  channelIndex = idx;
-  return idx;
-}
-
-// iMessage rows are resolved on this side (they never touch the server), using
-// the same normalisation the backend matches on.
-function resolveLocal(list) {
-  if (!channelIndex) return list;
-  for (const m of list) {
-    if (m.target_id || !m.handle) continue;
-    const k = /@/.test(m.handle) ? normCh('email', m.handle) : normCh('phone', m.handle);
-    const hit = channelIndex.get(k);
-    if (hit) m.target_id = hit;
-  }
-  return list;
-}
-
-
-// Unipile's bulk attendee directory is capped and unordered, so many 1:1
-// threads come back unnamed. Ask per-conversation for just those — cheap now
-// that the feed is grouped — and fire them in parallel.
-const chatPeople = new Map();   // channel:chat_id -> {name, target_id}
-const UNNAMED = /^(LinkedIn contact|WhatsApp contact|Unknown sender)$/;
-
-async function fillMissingNames(convs) {
-  const need = convs.filter((c) => !c.is_group && c.chat_id_raw && UNNAMED.test(c.title)
-                                   && !chatPeople.has(c.key)).slice(0, 14);
-  if (!need.length) return false;
-  const got = await Promise.all(need.map((c) =>
-    motion.get('/api/chat-people?channel=' + c.channel + '&chat_id=' + encodeURIComponent(c.chat_id_raw))
-      .then((r) => ({ c, p: (r.status === 200 && r.body && r.body.people) || [] }))
-      .catch(() => ({ c, p: [] }))));
-  let changed = false;
-  for (const { c, p } of got) {
-    if (!p.length) { chatPeople.set(c.key, null); continue; }
-    chatPeople.set(c.key, { name: p[0].name || '', target_id: p[0].target_id || 0 });
-    changed = true;
-  }
-  return changed;
-}
-
-// Collapse the raw message feed into conversations. A chat with one person (or
-// one group) is ONE row showing its latest message — like Messages — and you
-// click in to read the thread. Email threads group by thread id when the
-// provider gives one, else by the counterpart's address.
-function convKey(m) {
-  if (m.chat_id) return m.channel + ':' + m.chat_id;
-  if (m.handle) return m.channel + ':h:' + String(m.handle).toLowerCase();
-  return m.channel + ':who:' + String(m.who || '?').toLowerCase();
-}
-
-function conversations(list) {
-  const byKey = new Map();
-  for (const m of list) {
-    const k = convKey(m);
-    let c = byKey.get(k);
-    if (!c) {
-      c = { key: k, channel: m.channel, is_group: !!m.is_group, group_name: m.group_name || '',
-            chat_id_raw: m.chat_id || '', target_id: 0, msgs: [], names: new Set() };
-      byKey.set(k, c);
-    }
-    c.msgs.push(m);
-    if (m.target_id) c.target_id = m.target_id;
-    if (m.direction === 'in' && m.who) c.names.add(m.who);
-    if (m.is_group) { c.is_group = true; if (m.group_name) c.group_name = m.group_name; }
-  }
-  const out = [];
-  for (const c of byKey.values()) {
-    c.msgs.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
-    c.last = c.msgs[c.msgs.length - 1];
-    const looked = chatPeople.get(c.key);
-    if (looked && looked.target_id && !c.target_id) c.target_id = looked.target_id;
-    c.title = c.is_group
-      ? (c.group_name || 'Group chat')
-      : ((looked && looked.name) || [...c.names][0] || c.last.who
-         || (c.channel === 'linkedin' ? 'LinkedIn contact'
-             : c.channel === 'whatsapp' ? 'WhatsApp contact'
-             : c.channel === 'imessage' ? (c.last.handle || 'iMessage') : 'Unknown sender'));
-    out.push(c);
-  }
-  out.sort((a, b) => String(b.last.at || '').localeCompare(String(a.last.at || '')));
-  return out;
-}
-
-function openThread(key) {
-  const el = $('#db-body');
-  const c = conversations(inboxCache).find((x) => x.key === key);
-  if (!c) return;
-  el.dataset.detail = '1';
-  el.dataset.thread = key;
-  const bubbles = c.msgs.map((m) => `
-    <div class="th-msg ${m.direction === 'out' ? 'out' : 'in'}">
-      ${c.is_group && m.direction === 'in' ? `<div class="th-from">${esc(m.who || 'someone')}</div>` : ''}
-      <div class="th-bubble">${esc(m.subject ? m.subject + '\n' : '')}${esc(m.text || '(no text)')}</div>
-      <div class="th-at">${rel(m.at)}</div>
-    </div>`).join('');
-
-  el.innerHTML = `
-    <a class="back" href="#">← Inbox</a>
-    <div class="detail-head">
-      <h2>${esc(c.title)}</h2>
-      <div class="meta">
-        ${c.is_group ? 'Group · ' : ''}${esc(c.channel)} · ${c.msgs.length} message${c.msgs.length === 1 ? '' : 's'}
-      </div>
-      <div style="margin-top:7px">
-        ${c.target_id ? `<button class="ghost" id="th-contact">Open contact →</button>`
-          : (!c.is_group ? `<button class="ghost" id="th-assign">Who is this? Assign →</button>` : '')}
-      </div>
-    </div>
-    <div class="th-wrap">${bubbles}</div>`;
-
-  el.querySelector('.back').addEventListener('click', (e) => {
-    e.preventDefault(); delete el.dataset.detail; delete el.dataset.thread; renderInbox();
-  });
-  $('#th-contact')?.addEventListener('click', () => { delete el.dataset.thread; openBrief(c.target_id); });
-  $('#th-assign')?.addEventListener('click', () => { delete el.dataset.thread; openAssign(c.last); });
-  const w = el.querySelector('.th-wrap');
-  if (w) w.scrollTop = w.scrollHeight;
-}
-
-function renderInbox(pending) {
-  const el = $('#db-body');
-  delete el.dataset.detail;
-  delete el.dataset.thread;
-  const all = conversations(inboxCache);
-  const list = inboxFilter === 'all' ? all : all.filter((c) => c.channel === inboxFilter);
-  const chips = ['all', 'email', 'whatsapp', 'imessage', 'linkedin'].map((c) =>
-    `<button class="ib-chip ${c === inboxFilter ? 'on' : ''}" data-ibf="${c}">${
-      c === 'all' ? 'All' : (CH_GLYPH[c] || '') + ' ' + (c === 'imessage' ? 'iMessage' : c.charAt(0).toUpperCase() + c.slice(1))}</button>`).join('');
-
-  const named = (c) => !!(c.title && !/^(Unknown sender|LinkedIn contact|WhatsApp contact)$/.test(c.title));
-  const unmatched = list.filter((c) => !c.target_id && !c.is_group && named(c)).length;
-
-  el.innerHTML = `<div class="ib-filters">${chips}</div>` +
-    (imessageNeedsAccess ? `<div class="entry" style="padding:11px;margin-bottom:8px">
-       <b style="font-size:13px">iMessage isn't readable yet</b>
-       <div style="font-size:12.5px;color:var(--tx2);margin:4px 0 8px">
-         macOS keeps your Messages history behind Full Disk Access. Grant it to Blitz,
-         then quit and reopen the app and your texts appear here with everything else.</div>
-       <button id="ib-grant" class="primary" style="padding:6px 12px">Open Full Disk Access…</button>
-     </div>` : '') +
-    (pending ? `<div class="section-h">Loading ${pending} more channel(s)…</div>` : '') +
-    (unmatched ? `<div class="section-h" style="color:var(--amber)">${unmatched} conversation(s) not linked to a contact</div>` : '') +
-    (list.length ? list.map((c) => `
-      <button class="ib-row ${c.target_id ? '' : 'unmatched'}" data-ibk="${esc(c.key)}">
-        <span class="ch ${c.channel === 'linkedin' ? 'li' : ''}">${CH_GLYPH[c.channel] || '\u2691'}</span>
-        <span class="mid">
-          <span class="who">${c.is_group ? '<span class="grp">group</span> ' : ''}${esc(c.title)}${
-            c.msgs.length > 1 ? `<span class="dirn">${c.msgs.length} messages</span>` : ''}${
-            c.target_id || c.is_group || !named(c) ? '' : '<span class="newlead">not linked</span>'}</span>
-          <span class="snip">${c.last.direction === 'out' ? 'You: ' : (c.is_group && c.last.who ? esc(c.last.who) + ': ' : '')}${
-            esc(c.last.subject ? c.last.subject + ' — ' + (c.last.text || '') : (c.last.text || '(no text)'))}</span>
-        </span>
-        <span class="when">${rel(c.last.at)}</span>
-      </button>`).join('') : '<div class="empty">Nothing here yet.</div>');
-
-  $('#ib-grant')?.addEventListener('click', () => motion.imessageGrant());
-  el.querySelectorAll('[data-ibf]').forEach((b) => b.addEventListener('click', () => {
-    inboxFilter = b.dataset.ibf; renderInbox();
-  }));
-  el.querySelectorAll('[data-ibk]').forEach((b) => b.addEventListener('click', () => openThread(b.dataset.ibk)));
-
-  if (!pending) {
-    fillMissingNames(all).then((changed) => {
-      // only repaint if we're still looking at the list
-      if (changed && currentTab === 'inbox' && !$('#db-body').dataset.detail) renderInbox();
-    });
-  }
-}
-
-// An unmatched sender is the interesting case: either they're already a contact
-// under a different handle (link it, so it matches forever after) or they're a
-// new lead. Both write a contact_channels row — that's the organising spine.
-function chKindFor(m) {
-  if (m.channel === 'email') return 'email';
-  if (m.channel === 'whatsapp') return 'whatsapp';
-  if (m.channel === 'linkedin') return 'linkedin';
-  return 'other';
-}
-
-function openAssign(m) {
-  if (!m) return;
-  const el = $('#db-body');
-  el.dataset.detail = '1';
-  const kind = chKindFor(m);
-  const handle = m.handle || '';
-  el.innerHTML = `
-    <a class="back" href="#">← Inbox</a>
-    <div class="detail-head">
-      <h2>Who is this?</h2>
-      <div class="meta">${esc(m.who || 'Unnamed sender')} · ${esc(kind)}${handle ? ' · ' + esc(handle) : ''}</div>
-      <div class="ctx-quote" style="margin-top:8px;font-size:12.5px;color:var(--tx2)">${esc((m.text || '').slice(0, 220))}</div>
-    </div>
-    <div class="section-h">Link to an existing contact</div>
-    <input id="as-filter" placeholder="Filter contacts…" style="margin-bottom:8px">
-    <div id="as-list"></div>
-    <div class="section-h">Or create a new contact</div>
-    <div class="entry" style="padding:12px">
-      <div style="display:flex;gap:6px">
-        <input id="as-name" value="${esc(m.who && m.who !== 'Unknown' ? m.who : '')}" placeholder="Full name" style="flex:1">
-        <button id="as-new" class="primary" style="padding:6px 14px">Create</button>
-      </div>
-      <div id="as-err" class="chan-err"></div>
-    </div>`;
-
-  const paint = (q) => {
-    const rows = contacts.filter((c) => !q || (c.name + ' ' + (c.company || '')).toLowerCase().includes(q.toLowerCase())).slice(0, 40);
-    $('#as-list').innerHTML = rows.length ? rows.map((c) => `
-      <button class="list-row" data-as="${c.id}">${dot(c.stage)}<span class="nm">${esc(c.name)}</span>
-        <span class="sub">${esc(c.company || '')}</span><span class="right">link →</span></button>`).join('')
-      : '<div class="empty">No matching contacts.</div>';
-    $('#as-list').querySelectorAll('[data-as]').forEach((b) =>
-      b.addEventListener('click', () => linkHandle(Number(b.dataset.as), m, kind, handle)));
-  };
-  paint('');
-  $('#as-filter').addEventListener('input', function () { paint(this.value.trim()); });
-  el.querySelector('.back').addEventListener('click', (e) => { e.preventDefault(); delete el.dataset.detail; renderInbox(); });
-  $('#as-new').addEventListener('click', async () => {
-    const name = $('#as-name').value.trim();
-    if (!name) { $('#as-err').textContent = 'Give them a name.'; return; }
-    const res = await motion.post('/api/targets', { name, stage: 'engaged' });
-    if (res.status >= 300) { $('#as-err').textContent = 'Could not create that contact.'; return; }
-    const id = res.body && (res.body.id || (res.body.rows && res.body.rows[0] && res.body.rows[0].id));
-    if (!id) { $('#as-err').textContent = 'Created, but no id came back.'; return; }
-    linkHandle(id, m, kind, handle);
-  });
-}
-
-async function linkHandle(targetId, m, kind, handle) {
-  if (handle) {
-    await motion.post('/api/contact_channels', {
-      target_id: targetId, kind, value: handle, norm: normCh(kind, handle),
-      is_primary: false, source: 'inbound',
-    });
-  }
-  // File the message we were looking at so the contact has the history.
-  await motion.post('/api/context_entries', {
-    target_id: targetId,
-    kind: m.channel === 'email' ? 'email' : 'note',
-    content: (m.subject ? m.subject + ' — ' : '') + (m.text || ''),
-    source: 'inbound',
-  }).catch(() => {});
-  delete $('#db-body').dataset.detail;
-  await loadContacts(true);
-  await loadInbox(false);
-  openBrief(targetId);
-}
-
-// An inbound message from someone unknown is a lead — capture them in one click.
-async function addToRolodex(m) {
-  if (!m) return;
-  const body = { name: m.who || 'Unknown', stage: 'engaged' };
-  if (m.channel === 'email' && /@/.test(m.who || '')) body.email = m.who;
-  const res = await motion.post('/api/targets', body);
-  if (res.status < 300) {
-    const id = res.body && (res.body.id || (res.body.rows && res.body.rows[0] && res.body.rows[0].id));
-    await motion.post('/api/append', {
-      target: body.name,
-      content: (m.channel === 'email' ? 'Email' : m.channel === 'whatsapp' ? 'WhatsApp' : 'LinkedIn')
-        + ' from ' + (m.who || 'them') + ': ' + (m.text || ''),
-      kind: m.channel === 'email' ? 'email' : 'note',
-    }).catch(() => {});
-    loadContacts(true);
-    if (id) openBrief(id); else loadInbox(false);
-  }
-}
 
 // ---- Meetings tab: Calendly-style booking-page setup + upcoming bookings ----
 async function loadMeetings(soft) {
@@ -927,27 +509,11 @@ async function loadContacts(soft) {
   if (soft && $('#db-body').dataset.detail) return;
   renderContacts();
 }
-function renderContacts(list) {
-  const rows = (list || contacts);
-  const el = $('#db-body');
-  delete el.dataset.detail;
-  if (!rows.length) { el.innerHTML = '<div class="empty">No contacts yet.<br>Ask the agent to log your first one.</div>'; return; }
-  el.innerHTML = rows.map((t) => `
-    <button class="list-row" data-id="${t.id}">
-      ${dot(t.stage)}
-      <span class="nm">${esc(t.name)}</span>
-      <span class="sub">${esc(t.company || t.title || '')}</span>
-      <span class="right">${rel(t.last_touch)}</span>
-    </button>`).join('');
-  el.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => openBrief(Number(b.dataset.id))));
-}
-
-
-// ---------------- contact channels (how to reach someone) ----------------
-// A contact has many identities: several emails, a phone, LinkedIn, WhatsApp,
-// iMessage. `norm` is the matching key and MUST match the server's rule —
-// lowercased email, last-10 phone digits, bare linkedin handle — otherwise an
-// assigned handle won't resolve on the next inbound message.
+// ---------------- how to reach someone ----------------
+// A contact has many identities: several emails, a phone, LinkedIn, an iMessage
+// handle. `norm` is the matching key and MUST mirror the server's rule —
+// lowercased email, last-10 phone digits, bare linkedin handle — so a handle
+// taught here still resolves server-side.
 const CH_KINDS = ['email', 'phone', 'whatsapp', 'imessage', 'linkedin', 'other'];
 const CH_ICON = { email: '\u2709\uFE0F', phone: '\uD83D\uDCDE', whatsapp: '\uD83D\uDCAC', imessage: '\uD83D\uDCF1', linkedin: 'in', other: '\u2691' };
 
@@ -967,7 +533,7 @@ function normCh(kind, value) {
 }
 
 async function loadChannelsFor(targetId) {
-  const { status, body } = await motion.get('/api/contact_channels?per_page=100');
+  const { status, body } = await motion.get('/api/contact_channels?per_page=200');
   if (status !== 200) return [];
   const rows = Array.isArray(body) ? body : (body.rows || []);
   return rows.filter((r) => Number(r.target_id) === Number(targetId));
@@ -978,17 +544,18 @@ function renderChannelBox(targetId, rows) {
     <div class="chan-row">
       <span class="prov">${CH_ICON[c.kind] || '\u2691'} ${esc(c.kind)}</span>
       <span class="who">${esc(c.value)}</span>
-      ${c.is_primary ? '<span class="chan-badge ok">primary</span>' : `<button class="ghost cc-prim" data-id="${c.id}" data-kind="${esc(c.kind)}" style="padding:1px 7px;font-size:11px">make primary</button>`}
-      <button class="ghost cc-del" data-id="${c.id}" title="Remove" style="padding:1px 7px">\u00d7</button>
-    </div>`).join('') : '<span class="chan-empty">No channels yet — add one so inbound messages match this person.</span>';
+      ${c.is_primary ? '<span class="chan-badge ok">primary</span>'
+        : `<button class="ghost mini cc-prim" data-id="${c.id}" data-kind="${esc(c.kind)}">make primary</button>`}
+      <button class="ghost mini cc-del" data-id="${c.id}" title="Remove">\u00d7</button>
+    </div>`).join('') : '<span class="chan-empty">No channels yet.</span>';
 
   return `<div class="section-h">Reachable on</div>
-    <div class="entry" style="padding:12px">
+    <div class="entry">
       <div class="chan-list">${list}</div>
       <div style="display:flex;gap:6px;margin-top:8px">
         <select id="cc-kind" style="flex:0 0 110px">${CH_KINDS.map((k) => `<option value="${k}">${k}</option>`).join('')}</select>
         <input id="cc-val" placeholder="email, phone, or profile URL" style="flex:1">
-        <button id="cc-add" class="primary" style="padding:6px 14px">Add</button>
+        <button id="cc-add" class="primary">Add</button>
       </div>
       <div id="cc-err" class="chan-err"></div>
     </div>`;
@@ -1006,13 +573,13 @@ function wireChannelBox(targetId) {
     const kind = $('#cc-kind').value, value = $('#cc-val').value.trim();
     if (!value) { $('#cc-err').textContent = 'Enter a value first.'; return; }
     const norm = normCh(kind, value);
-    if (!norm) { $('#cc-err').textContent = 'That does not look usable for matching.'; return; }
+    if (!norm) { $('#cc-err').textContent = 'That is not usable for matching.'; return; }
     const rows = await loadChannelsFor(targetId);
     const res = await motion.post('/api/contact_channels', {
       target_id: Number(targetId), kind, value, norm,
       is_primary: !rows.some((r) => r.kind === kind), source: 'manual',
     });
-    if (res.status >= 300) { $('#cc-err').textContent = (res.body && res.body.error) || 'Could not add that.'; return; }
+    if (res.status >= 300) { $('#cc-err').textContent = 'Could not add that.'; return; }
     refresh();
   });
   document.querySelectorAll('.cc-del').forEach((b) => b.addEventListener('click', async () => {
@@ -1027,6 +594,62 @@ function wireChannelBox(targetId) {
   }));
 }
 
+const STAGES = ['new', 'engaged', 'qualified', 'active', 'won', 'lost', 'dormant'];
+let stageFilter = 'all';
+
+function renderContacts(list) {
+  const el = $('#db-body');
+  delete el.dataset.detail;
+  const all = list || contacts;
+  const rows = stageFilter === 'all' ? all : all.filter((t) => (t.stage || 'new') === stageFilter);
+
+  // Only offer stages the user actually has, so the filter row stays honest.
+  const counts = {};
+  for (const t of all) counts[t.stage || 'new'] = (counts[t.stage || 'new'] || 0) + 1;
+  const chips = ['all'].concat(STAGES.filter((s) => counts[s])).map((s) =>
+    `<button class="ib-chip ${s === stageFilter ? 'on' : ''}" data-stage="${s}">${
+      s === 'all' ? `All ${all.length}` : `${s} ${counts[s]}`}</button>`).join('');
+
+  el.innerHTML = `
+    <div class="ib-filters">${chips}</div>
+    <div class="quick-add">
+      <input id="qa-name" placeholder="Add someone — name">
+      <input id="qa-co" placeholder="company (optional)">
+      <button id="qa-go" class="primary">Add</button>
+    </div>
+    <div id="qa-err" class="chan-err"></div>` +
+    (rows.length ? rows.map((t) => `
+      <button class="list-row card" data-id="${t.id}">
+        ${dot(t.stage)}
+        <span class="mid">
+          <span class="nm">${esc(t.name)}${t.priority === 'high' ? '<span class="pri">high</span>' : ''}</span>
+          <span class="sub">${esc([t.title, t.company].filter(Boolean).join(' · ') || 'no company yet')}</span>
+        </span>
+        <span class="right">${t.last_touch ? rel(t.last_touch) + ' ago' : 'never'}</span>
+      </button>`).join('')
+      : `<div class="empty">${all.length ? 'Nobody at this stage.' : 'No contacts yet.<br>Add one above, or ask the agent to log someone.'}</div>`);
+
+  el.querySelectorAll('[data-stage]').forEach((b) => b.addEventListener('click', () => {
+    stageFilter = b.dataset.stage; renderContacts(list);
+  }));
+  el.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => openBrief(Number(b.dataset.id))));
+  $('#qa-go').addEventListener('click', quickAdd);
+  $('#qa-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') quickAdd(); });
+}
+
+async function quickAdd() {
+  const name = $('#qa-name').value.trim();
+  if (!name) { $('#qa-err').textContent = 'Give them a name.'; return; }
+  const body = { name, stage: 'new' };
+  const co = $('#qa-co').value.trim();
+  if (co) body.company = co;
+  const res = await motion.post('/api/targets', body);
+  if (res.status >= 300) { $('#qa-err').textContent = 'Could not add that contact.'; return; }
+  const id = res.body && (res.body.id || (res.body.rows && res.body.rows[0] && res.body.rows[0].id));
+  await loadContacts(true);
+  if (id) openBrief(id);
+}
+
 async function openBrief(id) {
   const el = $('#db-body');
   el.dataset.detail = '1';
@@ -1036,36 +659,113 @@ async function openBrief(id) {
   const t = body.target || {};
   const ctx = body.context || [];
   const fus = (body.follow_ups || []).filter((f) => f.status === 'open' || f.status === 'queued');
+
+  const field = (k, label, val, ph) =>
+    `<label class="f"><span>${label}</span><input data-f="${k}" value="${esc(val || '')}" placeholder="${ph || ''}"></label>`;
+
   el.innerHTML = `
-    <a class="back" href="#">← ${currentTab === 'inbox' ? 'Inbox' : currentTab === 'queue' ? 'Queue' : 'All contacts'}</a>
+    <a class="back" href="#">← ${currentTab === 'queue' ? 'Today' : 'All contacts'}</a>
     <div class="detail-head">
       <h2>${esc(t.name)}</h2>
-      <div class="meta">${esc([t.title, t.company].filter(Boolean).join(' · '))}</div>
-      <div style="margin-top:7px">
-        <span class="chip">${esc(t.stage || 'new')}</span>
-        ${t.email ? `<span class="chip">${esc(t.email)}</span>` : ''}
-        ${t.phone ? `<span class="chip">${esc(t.phone)}</span>` : ''}
+      <div class="meta">${esc([t.title, t.company].filter(Boolean).join(' · ') || 'no company yet')}
+        · last touch ${t.last_touch ? rel(t.last_touch) + ' ago' : 'never'}</div>
+    </div>
+
+    <div class="section-h">Contact info <button id="ci-edit" class="ghost mini">edit</button></div>
+    <div class="entry" id="ci-view">
+      ${[['Email', t.email], ['Phone', t.phone], ['LinkedIn', t.linkedin], ['Tags', t.tags]]
+        .filter(([, v]) => v).map(([k, v]) => `<div class="kv"><span>${k}</span><b>${esc(v)}</b></div>`).join('')
+        || '<span class="chan-empty">Nothing on file yet — hit edit.</span>'}
+      <div class="kv"><span>Stage</span><b>${esc(t.stage || 'new')}</b></div>
+    </div>
+    <div class="entry" id="ci-form" hidden>
+      ${field('name', 'Name', t.name)}
+      ${field('company', 'Company', t.company)}
+      ${field('title', 'Title', t.title)}
+      ${field('email', 'Email', t.email)}
+      ${field('phone', 'Phone', t.phone)}
+      ${field('linkedin', 'LinkedIn', t.linkedin)}
+      ${field('tags', 'Tags', t.tags, 'comma,separated')}
+      <label class="f"><span>Stage</span><select data-f="stage">${
+        STAGES.map((s) => `<option value="${s}" ${s === (t.stage || 'new') ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">
+        <span id="ci-err" class="chan-err" style="flex:1"></span>
+        <button id="ci-cancel" class="ghost">Cancel</button>
+        <button id="ci-save" class="primary">Save</button>
       </div>
     </div>
+
     <div id="cc-host"></div>
-    ${fus.length ? `<div class="section-h">Open follow-ups</div>` + fus.map((f) => `
-      <div class="fu-row">${dot(t.stage)}<span>${esc(f.note)}</span>
-        <span class="ch">${esc(f.channel || '')}</span>
-        <span class="due">${esc(String(f.due_at || f.scheduled_for || '').slice(0, 10))}</span></div>`).join('') : ''}
-    <div class="section-h">Timeline · ${ctx.length}</div>
+
+    <div class="section-h">Follow-ups · ${fus.length}</div>
+    ${fus.map((f) => `<div class="fu-row">${dot(t.stage)}<span>${esc(f.note)}</span>
+        <span class="due">${esc(String(f.due_at || f.scheduled_for || '').slice(0, 10))}</span>
+        <button class="ghost mini fu-done" data-fu="${f.id}">done</button></div>`).join('')}
+    <div class="entry">
+      <div style="display:flex;gap:6px">
+        <input id="fu-note" placeholder="Follow up on…" style="flex:1">
+        <input id="fu-due" type="date" style="flex:0 0 140px">
+        <button id="fu-add" class="primary">Schedule</button>
+      </div>
+    </div>
+
+    <div class="section-h">Notes &amp; context · ${ctx.length}</div>
+    <div class="entry">
+      <textarea id="nt-body" rows="2" placeholder="Log a note, a call, what you talked about…"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">
+        <select id="nt-kind" style="flex:0 0 110px">
+          ${['note', 'call', 'email', 'meeting', 'signal'].map((k) => `<option>${k}</option>`).join('')}
+        </select>
+        <button id="nt-add" class="primary">Log it</button>
+      </div>
+    </div>
     ${ctx.length ? ctx.map((e) => `
       <div class="entry">
         <div class="eh"><span class="kind">${esc(e.kind)}</span><span>${rel(e.occurred_at)} ago</span><span>· ${esc(e.source || '')}</span></div>
-        <div class="body">${esc(e.content)}</div>
-      </div>`).join('') : '<div class="empty">No context yet.</div>'}`;
+        <div class="body md">${md(e.content || '')}</div>
+      </div>`).join('') : '<div class="empty">Nothing logged yet.</div>'}`;
+
   el.querySelector('.back').addEventListener('click', (e) => {
     e.preventDefault();
     delete el.dataset.detail;
-    // Go back where they actually came from, not always to Contacts.
-    if (currentTab === 'inbox') renderInbox();
-    else if (currentTab === 'queue') loadQueue(false);
-    else renderContacts();
+    if (currentTab === 'queue') loadQueue(false); else renderContacts();
   });
+
+  $('#ci-edit').addEventListener('click', () => { $('#ci-view').hidden = true; $('#ci-form').hidden = false; });
+  $('#ci-cancel').addEventListener('click', () => { $('#ci-form').hidden = true; $('#ci-view').hidden = false; });
+  $('#ci-save').addEventListener('click', async () => {
+    const patch = {};
+    document.querySelectorAll('#ci-form [data-f]').forEach((i) => { patch[i.dataset.f] = i.value.trim(); });
+    const res = await motion.patch('/api/targets/' + id, patch);
+    if (res.status >= 300) { $('#ci-err').textContent = 'Could not save.'; return; }
+    await loadContacts(true);
+    openBrief(id);
+  });
+
+  $('#nt-add').addEventListener('click', async () => {
+    const content = $('#nt-body').value.trim();
+    if (!content) return;
+    await motion.post('/api/context_entries', { target_id: id, kind: $('#nt-kind').value, content, source: 'manual' });
+    await motion.patch('/api/targets/' + id, { last_touch: new Date().toISOString() }).catch(() => {});
+    openBrief(id);
+  });
+
+  $('#fu-add').addEventListener('click', async () => {
+    const note = $('#fu-note').value.trim();
+    if (!note) return;
+    const due = $('#fu-due').value;
+    await motion.post('/api/follow_ups', {
+      target_id: id, note, status: 'open', source: 'manual',
+      due_at: due ? due + 'T09:00:00Z' : new Date(Date.now() + 3 * 864e5).toISOString(),
+    });
+    openBrief(id);
+  });
+
+  document.querySelectorAll('.fu-done').forEach((b) => b.addEventListener('click', async () => {
+    await motion.patch('/api/follow_ups/' + b.dataset.fu, { status: 'done', completed_at: new Date().toISOString() });
+    openBrief(id);
+  }));
+
   loadChannelsFor(id).then((rows) => {
     const host = $('#cc-host');
     if (!host) return;
@@ -1074,25 +774,60 @@ async function openBrief(id) {
   });
 }
 
+// "Today" — the daily task list. Follow-ups bucketed by when they're due and
+// labelled with the person, because the unit of work here is a person, not a
+// ticket. Overdue first: those are the ones actually costing you something.
 async function loadQueue(soft) {
   const el = $('#db-body');
   if (soft && el.dataset.detail) return;
   if (!soft) { delete el.dataset.detail; el.innerHTML = '<div class="empty">Loading…</div>'; }
-  const { status, body } = await motion.get('/api/queue');
-  if (status !== 200) { el.innerHTML = '<div class="empty">Could not load the queue.</div>'; return; }
-  const due = body.due || [], up = body.upcoming || [];
-  const row = (q) => `
-    <div class="fu-row">
-      <span class="ch">${({ email: '✉️', linkedin: 'in', imessage: '📱', whatsapp: '💬' })[q.channel] || '⚑'}</span>
-      <span>${esc(q.note)}</span>
-      <span class="sub" style="color:var(--tx3)">· ${esc(q.target_name)}</span>
-      <span class="due">${esc(String(q.scheduled_for || '').replace('T', ' ').slice(0, 16))}</span>
+
+  const { status, body } = await motion.get('/api/follow_ups?per_page=300&orderBy=due_at:asc');
+  if (status !== 200) { el.innerHTML = '<div class="empty">Could not load your follow-ups.</div>'; return; }
+  const rows = (Array.isArray(body) ? body : (body.rows || []))
+    .filter((f) => f.status === 'open' || f.status === 'queued');
+
+  const byId = {};
+  for (const c of contacts) byId[c.id] = c;
+  const day = (s) => String(s || '').slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const weekOut = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+
+  const buckets = { Overdue: [], Today: [], 'This week': [], Later: [], 'No date': [] };
+  for (const f of rows) {
+    const d = day(f.due_at || f.scheduled_for);
+    if (!d) buckets['No date'].push(f);
+    else if (d < today) buckets.Overdue.push(f);
+    else if (d === today) buckets.Today.push(f);
+    else if (d <= weekOut) buckets['This week'].push(f);
+    else buckets.Later.push(f);
+  }
+
+  const row = (f) => {
+    const c = byId[f.target_id] || {};
+    return `<div class="fu-row task">
+      <button class="ghost mini tick" data-fu="${f.id}" title="Mark done">✓</button>
+      <button class="who-link" data-go="${f.target_id}">${esc(c.name || 'Unknown')}</button>
+      <span class="note">${esc(f.note)}</span>
+      <span class="due">${esc(day(f.due_at || f.scheduled_for) || '—')}</span>
     </div>`;
-  el.innerHTML = `
-    <div class="section-h" style="color:var(--amber)">Due now · ${due.length}</div>
-    ${due.length ? due.map(row).join('') : '<div class="empty">Nothing due.</div>'}
-    <div class="section-h">Upcoming · ${up.length}</div>
-    ${up.length ? up.map(row).join('') : '<div class="empty">No upcoming steps. A reply on any channel cancels a contact’s queued steps.</div>'}`;
+  };
+
+  const open = Object.values(buckets).reduce((n, b) => n + b.length, 0);
+  el.innerHTML = Object.entries(buckets).filter(([, b]) => b.length).map(([k, b]) =>
+    `<div class="section-h" ${k === 'Overdue' ? 'style="color:var(--red)"' : k === 'Today' ? 'style="color:var(--amber)"' : ''}>${k} · ${b.length}</div>`
+    + b.map(row).join('')).join('')
+    || '<div class="empty">Nothing scheduled.<br>Open a contact and add a follow-up, or ask the agent.</div>';
+
+  if (open) el.insertAdjacentHTML('afterbegin',
+    `<div class="ib-filters"><span class="ib-chip on">${open} open</span></div>`);
+
+  el.querySelectorAll('[data-go]').forEach((b) =>
+    b.addEventListener('click', () => openBrief(Number(b.dataset.go))));
+  el.querySelectorAll('.tick').forEach((b) => b.addEventListener('click', async () => {
+    await motion.patch('/api/follow_ups/' + b.dataset.fu, { status: 'done', completed_at: new Date().toISOString() });
+    loadQueue(false);
+  }));
 }
 
 // search — filters contacts locally, hits /api/search for context matches
@@ -1120,57 +855,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------------- settings ----------------
-// ---- connected accounts (Settings) ----
-const PROV_LABEL = { GOOGLE: 'Email', OUTLOOK: 'Outlook', LINKEDIN: 'LinkedIn', WHATSAPP: 'WhatsApp' };
-let chanPoll = null;
-
-async function loadChannels() {
-  const box = $('#set-channels');
-  if (!box) return;
-  const { status, body } = await motion.get('/api/channel_accounts');
-  if (status !== 200) { box.innerHTML = '<span class="chan-empty">Could not load your accounts.</span>'; return; }
-  const rows = Array.isArray(body) ? body : (body.rows || []);
-  if (!rows.length) { box.innerHTML = '<span class="chan-empty">Nothing connected yet — add one below.</span>'; return; }
-  box.innerHTML = rows.map((r) => {
-    const paused = r.status === 'paused';
-    return `<div class="chan-row">
-      <span class="prov">${esc(PROV_LABEL[r.provider] || r.provider || '—')}</span>
-      <span class="who">${esc(r.display || '')}</span>
-      <span class="chan-badge ${paused ? 'paused' : 'ok'}">${paused ? 'paused' : 'connected'}</span>
-    </div>`;
-  }).join('');
-}
-
-document.querySelectorAll('#modal [data-conn]').forEach((b) => b.addEventListener('click', async () => {
-  b.disabled = true; const old = b.textContent; b.textContent = 'Opening…';
-  $('#set-chan-err').textContent = '';
-  const { status, body } = await motion.post('/api/channels/connect', { provider: b.dataset.conn });
-  if (status === 200 && body.url) {
-    motion.openUrl(body.url);
-    $('#set-chan-err').textContent = 'Finish connecting in your browser — this list updates automatically.';
-    // Poll while the user completes the hosted auth wizard.
-    if (chanPoll) clearInterval(chanPoll);
-    let ticks = 0;
-    chanPoll = setInterval(() => {
-      if (++ticks > 60 || $('#modal').hidden) { clearInterval(chanPoll); chanPoll = null; return; }
-      loadChannels();
-    }, 3000);
-  } else {
-    $('#set-chan-err').textContent = (body && body.error) || 'Could not start the connection.';
-  }
-  b.disabled = false; b.textContent = old;
-}));
-
 $('#settings-btn').addEventListener('click', async () => {
   cfg = await motion.cfg();
-  loadChannels();
   engines = await motion.detectEngines();
   $('#set-email').textContent = cfg.email || '(not signed in)';
   const engSel = $('#set-engine');
   engSel.value = cfg.engine || 'byok';
-  engSel.querySelector('[value="platform"]').disabled = !cfg.platformReady;
-  engSel.querySelector('[value="platform"]').textContent = cfg.platformReady
-    ? 'Blitz credits (no key needed)' : 'Blitz credits — almost live';
   engSel.querySelector('[value="claude-code"]').disabled = !engines.claudeCode;
   engSel.querySelector('[value="claude-code"]').textContent = engines.claudeCode
     ? `Claude Code (my subscription) — ${engines.claudeCode}` : 'Claude Code — not installed';
@@ -1179,10 +869,7 @@ $('#settings-btn').addEventListener('click', async () => {
   $('#set-key').placeholder = cfg.hasKey ? '••••••••  (saved — paste to replace)' : 'sk-ant-…';
   $('#modal').hidden = false;
 });
-$('#set-cancel').addEventListener('click', () => {
-  $('#modal').hidden = true;
-  if (chanPoll) { clearInterval(chanPoll); chanPoll = null; }
-});
+$('#set-cancel').addEventListener('click', () => { $('#modal').hidden = true; });
 $('#set-save').addEventListener('click', async () => {
   const k = $('#set-key').value.trim();
   if (k) await motion.setKey(k);
