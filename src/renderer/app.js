@@ -761,6 +761,7 @@ async function openBrief(id) {
       }
       $('#del-go').disabled = true;
       $('#del-go').textContent = 'Deleting…';
+      try {
       // auto-CRUD only removes the contact row, so clear what hung off it first
       const kill = async (path) => {
         const r = await motion.get(path + '?per_page=300');
@@ -780,6 +781,12 @@ async function openBrief(id) {
       delete el.dataset.detail;
       await loadContacts(true);
       renderContacts();
+      } catch (err) {
+        // never strand the button on "Deleting…" — say what broke
+        $('#del-err').textContent = 'Delete failed: ' + (err && err.message || err);
+        $('#del-go').disabled = false;
+        $('#del-go').textContent = 'Delete';
+      }
     };
     $('#del-go').addEventListener('click', go);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });

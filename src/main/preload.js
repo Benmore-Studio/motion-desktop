@@ -20,5 +20,6 @@ contextBridge.exposeInMainWorld('motion', {
   get: (p) => ipcRenderer.invoke('api:get', p),
   post: (p, b) => ipcRenderer.invoke('api:post', p, b),
   patch: (p, b) => ipcRenderer.invoke('api:patch', p, b),
+  del: (p) => ipcRenderer.invoke('api:delete', p),
   onAgent: (cb) => { ipcRenderer.on('agent:event', (_e, ev) => cb(ev)); },
 });

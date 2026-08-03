@@ -342,6 +342,23 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Test hook: BLITZ_TEST_SCRIPT=<file.js> runs that script in the REAL
+  // renderer (real preload, real IPC) and quits. Exists because a harness with
+  // its own stub preload once passed while the shipped bridge was missing a
+  // method — UI checks must exercise the bridge the user actually runs.
+  if (process.env.BLITZ_TEST_SCRIPT) {
+    win.webContents.once('did-finish-load', async () => {
+      try {
+        const src = fs.readFileSync(process.env.BLITZ_TEST_SCRIPT, 'utf8');
+        const out = await win.webContents.executeJavaScript(`(async () => { ${src} })()`);
+        console.log('BLITZ_TEST_RESULT ' + JSON.stringify(out));
+      } catch (e) {
+        console.log('BLITZ_TEST_ERROR ' + (e && e.message || e));
+      }
+      app.quit();
+    });
+  }
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
 
